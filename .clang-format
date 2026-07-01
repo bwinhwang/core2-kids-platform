@@ -1,0 +1,12 @@
+# 落地 AGENTS.md §5:4 空格缩进、无 tab、C 风格
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: false
+AlignConsecutiveMacros: true
+PointerAlignment: Right
+SortIncludes: false

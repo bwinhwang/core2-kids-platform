@@ -1,0 +1,9 @@
+# bsp_core2 的托管依赖(ESP 组件注册表)
+# 裁剪某能力时对应组件虽仍下载但不链接,无副作用;彻底不用可手动删依赖。
+dependencies:
+  # SK6812 灯条(v3 RMT 后端,支持 SK6812)
+  espressif/led_strip: "^3.0.0"
+  # ILI9342C 兼容(Core2 面板);driver 侧需 esp_lcd(IDF 自带)
+  espressif/esp_lcd_ili9341: "^2.0.2"
+  # FT6336U 电容触摸(FT5x06 系列驱动兼容 FT6336,Core2 esp-bsp 亦用此)
+  espressif/esp_lcd_touch_ft5x06: "^1.0.0"

@@ -1,0 +1,12 @@
+# ESP-IDF 构建产物
+/build/
+sdkconfig
+sdkconfig.old
+
+# 组件管理器拉取的托管依赖(由 idf_component.yml + *.lock 复现)
+/managed_components/
+
+# 编辑器/系统
+.vscode/
+.DS_Store
+*.swp

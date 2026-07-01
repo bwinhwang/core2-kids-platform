@@ -1,0 +1,22 @@
+menu "Core2 BSP (板载能力裁剪)"
+
+    comment "电源(AXP192)/内部 I2C / IMU 为平台必选,不可关"
+
+    config BSP_ENABLE_LEDS
+        bool "SK6812 灯条 (Bottom2, G25 ×10)"
+        default y
+
+    config BSP_ENABLE_AUDIO
+        bool "NS4168 I2S 扬声器"
+        default y
+
+    config BSP_ENABLE_DISPLAY
+        bool "ILI9342C LCD (320×240)"
+        default y
+
+    config BSP_ENABLE_TOUCH
+        bool "FT6336U 电容触摸 (未上板验证)"
+        depends on BSP_ENABLE_DISPLAY
+        default y
+
+endmenu
