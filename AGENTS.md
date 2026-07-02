@@ -44,7 +44,6 @@
 
 **审计习惯**:每次 MCP 查询后,在对话里明示 "Confirmed via espressif-docs: <一行总结>",方便人类核对你是真查了文档还是退回了训练数据。
 
-ESP-IDF API surface 在小版本之间会变(尤其 v5.0 的 I2S 重写),训练数据不可靠。
 
 ---
 
