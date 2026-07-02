@@ -1,50 +1,42 @@
-# Core2 + Bottom2 幼儿应用平台模板
+# 倾斜迷宫(Tilt Maze for Toddlers)—— Core2 v1.0 + M5GO Bottom2
 
-面向「M5Stack Core2 v1.0 + M5GO Bottom2 + 各类 UNIT 外设」的幼儿应用快速起步模板。
-三层结构:**固定平台 BSP** + **可插拔 UNIT 框架** + **幼儿交互/安全骨架**。
+给 3~4 岁幼儿的滚珠迷宫:**双手端着 Core2 左右前后倾斜,小球随重力滚动,滚进「家」触发庆祝**,
+四关(草地/海边/星空/糖果)循环,零失败、无文字、多通道反馈(屏 / 声 / 震动 / 底座灯带)。
 
-clone 下来即带一个可跑 demo:**摇 Core2 → 灯随强度变化 + 摇一下响一声 + 屏背景加深**。
+- **应用规格 + 竣工记录**:`CLAUDE.md`(§20 是 as-built 事实,§17 坑位速查)
+- **迁移 / 环境 / 进度**:`HANDOFF.md`
+- **AI 协作规范(MCP 铁律)**:`AGENTS.md`
+- **板级硬件事实**:`docs/platform/Core2_v1_0.md`、`docs/platform/M5GO_Bottom2.md`
 
-## 快速开始
+> 2026-07-02 由拷贝工程 `~/esp/maze` 整体迁入本仓库;原「幼儿应用平台模板」demo 及
+> `bsp_core2`/`app_core` 等自写组件已废弃删除(git 历史可找回)。现应用基于官方
+> `espressif/m5stack_core_2` BSP(AXP192/LCD/触摸/LVGL/喇叭)+ 自写组件
+> `imu_mpu6886` / `maze_audio` / `ledstrip_fx` / `haptics`。
+
+## 硬件(硬依赖,缺一不可)
+
+**Core2 初代 v1.0 + M5GO Bottom2 底座。** 本机 Core2 缺背部扩展模块,
+**IMU(MPU6886 @0x68)与电池都来自底座**,不接底座游戏跑不了。灯带 10×SK6812 @ G25。
+
+## 构建 / 烧录
+
+AI 协作时编译/刷写走 **esp-idf MCP**(`AGENTS.md` §0 铁律);人工命令行:
+
 ```bash
-# 1) 激活 IDF 环境(每开新 shell)
-source ~/.espressif/tools/activate_idf_v6.0.sh && source $IDF_PATH/export.sh
-# 2) 改工程名(可选)
-tools/new_app.sh my_app
-# 3) 构建 / 烧录
-idf.py set-target esp32
+source ~/.espressif/tools/activate_idf_v6.0.sh && source $IDF_PATH/export.sh   # 本机 IDF v6.0
 idf.py build
-idf.py -p <PORT> flash monitor
+idf.py -p /dev/ttyUSB0 flash
+python3 tools/serial_capture.py /dev/ttyUSB0 60   # 非交互抓日志(先硬复位到运行态)
 ```
+
+改 `sdkconfig.defaults` 后:`rm -f sdkconfig` → fullclean → build。
 
 ## 目录
+
 | 路径 | 作用 |
 |---|---|
-| `components/bsp_core2/` | 平台 BSP(电源/IMU/灯/音频/屏/触摸),开箱即用,可 Kconfig 裁剪 |
-| `components/app_core/` | 交互骨架:共享状态、状态机、默认 engine、调参、`kids_safety` |
-| `components/units/` | 可插拔 UNIT 外设(含 `unit_template`) |
-| `components/common/` | NVS 初始化、I2C 扫描自检 |
-| `docs/platform/` | 平台固定硬件真值(Core2 / Bottom2),勿改 |
-| `docs/units/` | 各 UNIT 硬件真值(含 `_UNIT_TEMPLATE.md`) |
-| `AGENTS.md` / `CLAUDE.md` | 通用 AI 协作规范 / 本应用特定规范 |
-
-## 加一个 UNIT 外设(超声波/手势/光线…)
-```bash
-tools/add_unit.sh ultrasonic A       # 复制 unit_template + 生成文档雏形(接 PORT.A)
-```
-然后:填 `docs/units/ultrasonic.md`(地址/寄存器/坑)、在 `main/CMakeLists.txt` 的
-`REQUIRES` 加 `unit_ultrasonic`、用 `bsp_i2c_port_a()` 取总线传入 init。
-接上硬件后先 `i2c_scan(bsp_i2c_port_a())` 确认地址。
-
-## 裁剪板载能力
-`idf.py menuconfig` →「Core2 BSP」勾选灯/声/屏/触摸。不用屏的应用关掉可省 flash/RAM。
-
-## 换成你自己的应用
-1. 改 `engine.c`(若输入不是 IMU 而是某 UNIT)
-2. 改 `main.c` 的各输出 task(灯/声/屏怎么响应)
-3. 调 `app_tuning.h`(行为)与 `kids_safety.h`(红线)
-4. 写 `CLAUDE.md`(产品目标)与 `docs/HARDWARE.md`(装配)
-
-## 可选:CI / 单元测试(模板未预置,按需加)
-- 单元测试:新建 `test_apps/`,用 pytest-embedded + Unity(host 或 qemu)。
-- CI:`.github/workflows/build.yml` 跑 `idf.py build`(可矩阵 esp32)。
+| `main/` | app_main(bring-up)· game_state(60Hz+状态机+两级省电)· physics · maze(4 关+BFS 校验)· render(三层渲染)· feedback(四通道编排)· parent_menu · power(AXP192 EXTEN/DCDC3)· tuning.h(全部调参) |
+| `components/` | `imu_mpu6886` · `maze_audio` · `ledstrip_fx` · `haptics` |
+| `docs/platform/` | Core2 / Bottom2 板级真值(勿改) |
+| `docs/units/` | 各 UNIT 外设硬件真值(本应用未用,留作扩展) |
+| `tools/` | `serial_capture.py` 非交互串口抓取 |
