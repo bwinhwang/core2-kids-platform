@@ -101,10 +101,14 @@ project/
 │   ├── render.c/.h             # LVGL 绘制(静态迷宫层 + 动态球 + 特效,见 §9)
 │   ├── feedback.c/.h           # 反馈编排器:把"事件"分发到 视觉/音频/触觉/灯带
 │   └── parent_menu.c/.h        # 家长隐藏菜单(音量/亮度/难度)
-├── components/
-│   ├── imu_mpu6886/            # MPU6886 最小驱动:输出已校准的倾斜向量(§8.1)
+├── components/                  # 平台层(§20.7 平台化后现状;各组件详见 components/*/README.md)
+│   ├── core2_board/            # 一键 bring-up(初始化顺序知识固化)
+│   ├── core2_power/            # AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)
+│   ├── core2_sleep/            # 两级省电编排(打盹/深度省电/去抖唤醒,§20.6)
+│   ├── motion_detect/          # "有没有人在玩"检测(帧间差+去抖,纯逻辑)
+│   ├── imu_mpu6886/            # MPU6886 最小驱动:输出倾斜向量(§8.1)
 │   ├── haptics/                # 震动马达(AXP192 LDO3)+ 震动模式库(§11)
-│   ├── maze_audio/             # 音效播放(esp_codec_dev),内置 PCM 片段(§10)
+│   ├── audio_fx/               # 音效引擎(esp_codec_dev,程序化合成,§10;原 maze_audio)
 │   └── ledstrip_fx/            # 底座 SK6812 灯效(§12),常驻通道(本机底座必装)
 └── ...
 ```
@@ -243,6 +247,10 @@ project/
 
 ## 7. 状态机(`game_state.c`)
 
+> ⚠️ **竣工后本节有两处偏离**(下图保留原设计意图):①**CALIBRATE 态已整体删除**
+> (§20.9 绝对零点免校准,ATTRACT 倾斜触发**直接进 PLAY**);②IDLE/深度省电两态已托管给
+> `components/core2_sleep`(§20.7),游戏状态机只剩 **ATTRACT/PLAY/WIN**。
+
 ```
             ┌────────────────────────────────────────────────┐
             ▼                                                │
@@ -283,6 +291,9 @@ project/
 - 量程取 ±2g 足够(只测重力倾斜),输出标准化为 g。
 
 ### 8.2 校准(对幼儿至关重要)
+
+> ⚠️ **已废弃(2026-07-02,§20.9)**:校准机制整体删除,"平"= 屏幕与地面平(重力绝对参考),
+> 学会端平正是游戏要教的。本节仅保留原设计思路,勿再实现。
 
 孩子端着的姿态**不是水平**。进 PLAY 前采样 0.5~1s 加速度均值 `(a0x,a0y,a0z)` 作为**中性零点**:
 之后的"倾斜"= 当前重力相对该零点的偏移。这样**无论孩子怎么舒服地端着,那个姿态就是"平"**,极大降低门槛。
@@ -394,7 +405,7 @@ project/
 
 ---
 
-## 10. 音频方案(`maze_audio`,基于 esp_codec_dev)
+## 10. 音频方案(`audio_fx`,基于 esp_codec_dev;§20.7 平台化前叫 `maze_audio`)
 
 - **走 BSP 音频**:`bsp_audio_codec_speaker_init()` 拿 codec handle,`esp_codec_dev_open/write/close`
   播放 **PCM**。BSP 把 NS4168 经 I2S 封装好,SPK_EN(AXP192 IO2)由 BSP/AXP 管。
@@ -441,8 +452,9 @@ project/
   **AXP192 EXTEN(REG 0x12 bit6)**。**Espressif BSP 只配屏/触摸/喇叭/震动那几路 rail,从不开 EXTEN**
   → 底座灯带没供电、**完全不亮**。而数据线 G25 是 3.3V 逻辑照常翻转、`led_strip_refresh` 照样返回
   `ESP_OK`,**极易误判成"灯带坏了/驱动错了"**(实则烧别的软件能亮就是因为它们开了 EXTEN)。
-  修法见 `main/power.c`:复刻 M5Core2 `SetBusPowerMode(0)`——GPIO0 设 LDOio 3.3V 输出 + 置 EXTEN。
-  **须在 `bsp_display_start` 之后调用**(BSP 的 AXP192 初始化会把 REG 0x12 清 0)。深度省电时 `power_bus_5v(false)` 关掉可省电。
+  修法见 `components/core2_power`:复刻 M5Core2 `SetBusPowerMode(0)`——GPIO0 设 LDOio 3.3V 输出 + 置 EXTEN
+  (`core2_power_bus_5v(true)`,bring-up 由 `core2_board_init` 代开)。
+  **须在 `bsp_display_start` 之后调用**(BSP 的 AXP192 初始化会把 REG 0x12 清 0)。深度省电时 `core2_power_bus_5v(false)` 关掉可省电。
 
 ---
 
@@ -537,10 +549,11 @@ project/
 - **底座必装**:IMU(MPU6886 @ 0x68)与电池都来自 Bottom2,**不接底座就没倾斜、没电——游戏跑不了**。
   开机/M0 先确认底座在位、I2C 扫得到 0x68;灯带 G25 常驻启用,G25 不能再做别的。
 - 🔴 **灯带全黑先查 EXTEN**:底座灯带吃 M-Bus 5V(SY7088 升压,AXP192 EXTEN 使能),**BSP 从不开 EXTEN**;
-  数据线正常翻转、`refresh` 返回 OK 也可能全黑。必须自己开 EXTEN(见 `main/power.c`、§12)。**别误判成硬件坏**。
+  数据线正常翻转、`refresh` 返回 OK 也可能全黑。必须自己开 EXTEN(见 `components/core2_power`、§12)。**别误判成硬件坏**。
 - 🔴 **`brightness_set(0)` 不熄屏**:Core2 背光=AXP192 **DCDC3**,BSP 的亮度只调 DCDC3 电压(0% 仍 ~2.95V,还有微光)。
-  深度省电要**真黑屏必须断 DCDC3 使能**(REG 0x12 bit1,见 `power_backlight()`)。与 EXTEN 同类:BSP 不管、得直接控 AXP192。详见 §20.6。
+  深度省电要**真黑屏必须断 DCDC3 使能**(REG 0x12 bit1,见 `core2_power_backlight()`)。与 EXTEN 同类:BSP 不管、得直接控 AXP192。详见 §20.6。
 - **打盹判据只看机身动作(IMU),别看球速**:球在残余倾斜下会永远慢爬,用球速判定会**永不打盹**;唤醒要连续多帧去抖,防单帧噪声误唤醒。详见 §20.6。
+- 🔴 **平放却单向慢爬 ≠ IMU 坏**:根因曾是校准零点被"开始手势"污染 + 硬死区悬崖(§20.8);现已**绝对零点免校准**(§20.9),无校准即无污染;若再现,先量板偏置(是否 > 死区 0.06g),别加回姿态校准。
 - **渲染红线:永不每帧整屏重绘**(经典 ESP32 无 2D 加速,SPI 40MHz 整屏 ~31ms → 整屏刷必死帧率)。
   静态层进关画一次、关内只刷脏矩形;扁平色优先(RGB565 渐变会 banding);发光/脉动烘进静态层别每帧 alpha。详见 §9。
 - **关卡用手工编排 + 加载时可解性校验**,别用纯随机。
@@ -701,23 +714,25 @@ project/
 | 手感 | `GAIN=1800` / `DAMPING=0.90` / `VEL_MAX=220` / `DEADZONE=0.06` / `TILT_ALPHA=0.25` | 重而稳、不飘、封顶 |
 | 球/家 | `BALL_R=12` / `GOAL_R=20` / `WALL_RESTITUTION=0.2` / `BUMP_MIN_SPEED=35` | §18.4 / §4.4 |
 | 步长 | `PHYS_DT=1/60` / `PHYS_PERIOD_MS=16`(`FREERTOS_HZ=1000`) | 固定 dt 60Hz |
-| 状态机 | `ATTRACT_TILT_THRESH=0.22` / `CALIB_FRAMES=48`(~0.75s) / `WIN_HOLD_MS=1800` | |
+| 状态机 | `ATTRACT_TILT_THRESH=0.22` / `WIN_HOLD_MS=1800` | 免校准(§20.9),`CALIB_*` 已删 |
 | idle/省电 | `PLAY_BRIGHTNESS=60` / `IDLE_BRIGHTNESS=10` / `IDLE_TIMEOUT_MS=12000` / `IDLE_WAKE_THRESH=0.12` | 打盹(见 §20.6) |
 | 深度省电 | `DEEP_IDLE_TIMEOUT_MS=60000` / `DEEP_IDLE_POLL_MS=120` / `WAKE_DEBOUNCE_FRAMES=3` | 断 DCDC3+切 5V+去抖唤醒(§20.6) |
 | 灯带/家长 | 灯带亮度上限 `48`(`ledstrip_fx_set_max_brightness`) / `PARENT_LONGPRESS_MS=3000` | |
 
-### 20.3 实际架构(与 §3.1 一致)
+### 20.3 实际架构(§20.7 平台化 + §20.9 免校准之后的现状)
 
 ```
-main/      app_main.c(纯 bring-up + 起状态机)· game_state.c(60Hz 任务 + 状态机)
+main/      app_main.c(core2_board_init 一键 bring-up + 起状态机)
+           game_state.c(60Hz 任务 + 状态机 ATTRACT/PLAY/WIN;省电托管给 core2_sleep)
            physics.c · maze.c(4 关 + BFS 校验 + 滑行碰撞)· render.c(三层 + 特效)
-           feedback.c(四通道编排器)· parent_menu.c · power.c(AXP192 M-Bus 5V/EXTEN)· tuning.h
-components/ imu_mpu6886 · maze_audio · ledstrip_fx · haptics
+           feedback.c(四通道编排器)· parent_menu.c · tuning.h
+components/ core2_board · core2_power · core2_sleep · motion_detect(平台编排层)
+            imu_mpu6886 · audio_fx · ledstrip_fx · haptics(外设/反馈通道)
 ```
 - **任务/队列**:game_task(60Hz)读 IMU→物理→碰撞→渲染→发事件;feedback/audio/haptics/ledstrip 各自事件驱动消费队列,**不阻塞 game_task**(符合 §3.2)。
-- **校准零点跨关复用**:`physics_set_position` 只复位 pos/vel,**不清零点**;`physics_calibrate` 才写零点。进关切关不会丢失握持零点。
-- **打盹/唤醒机制(2026-07-01 实机调通,详见 §20.6)**:打盹只看机身动作量 `s_motion`(帧间加速度变化)、**不看球速**(球在残余倾斜下会永远慢爬,用球速判定会永不打盹);唤醒要**连续 3 帧**动作去抖,防单帧 IMU 噪声误唤醒或打断 60s 深度省电计时。
-- 🔴 **M-Bus 5V / EXTEN 坑(已解,2026-07-01)**:BSP 从不开 AXP192 EXTEN → 底座灯带没 5V 全黑(refresh 仍 OK,极易误判硬件坏)。`power.c` bring-up 时开 EXTEN;深度省电时 `power_bus_5v(false)` 关掉。详见 §12、§17。
+- **免校准(§20.9)**:无零点/校准概念,`physics_set_position` 只复位 pos/vel;低通滤波首帧样本自预热。
+- **打盹/唤醒机制(2026-07-01 实机调通,详见 §20.6)**:打盹只看机身动作量 `s_motion`(帧间加速度变化)、**不看球速**(球在残余倾斜下会永远慢爬,用球速判定会永不打盹);唤醒要**连续 3 帧**动作去抖,防单帧 IMU 噪声误唤醒或打断 60s 深度省电计时。现由 `core2_sleep` + `motion_detect` 托管,游戏侧每帧 `core2_sleep_feed()` 喂加速度即可。
+- 🔴 **M-Bus 5V / EXTEN 坑(已解,2026-07-01)**:BSP 从不开 AXP192 EXTEN → 底座灯带没 5V 全黑(refresh 仍 OK,极易误判硬件坏)。`core2_board_init` bring-up 时开 EXTEN;深度省电时 `core2_power_bus_5v(false)` 关掉。详见 §12、§17。
 
 ### 20.4 落地实现 vs 规格的差异(刻意选择,均在帧预算/纪律内)
 
@@ -730,13 +745,13 @@ components/ imu_mpu6886 · maze_audio · ledstrip_fx · haptics
 | 吉祥物换帽/待机微动 | §18.4/§18.5 | **未做**(同一张程序化脸,无换帽、无 §18.5 微动) | 锦上添花项;帧预算优先给球 |
 | idle 省电 | 可深度休眠(§14) | **两级**:打盹(12s)降亮 60%→10% + 灯带慢呼吸;**深度省电(再 60s)真黑屏(断 DCDC3,非 brightness 0%)+ 灯带熄 + 切 M-Bus 5V + IMU 降频轮询(120ms)**,动一下唤醒。机制/踩坑详见 §20.6 | 关背光+切 5V 是最大两个耗电点;未上真·light-sleep(避免 IMU 唤醒复杂度) |
 | 眨眼 | 静止时眨眼(§5.1) | **未做**(瞳孔朝速度方向已做) | 可选打磨 |
-| 校准 | §8.2 进关采样零点 | **保留 CALIBRATE 态**(端平采样 ~0.75s),ATTRACT 倾斜/触屏进入 | 与规格一致 |
+| 校准 | §8.2 进关采样零点 | **已整体删除**(2026-07-02):绝对零点免校准,ATTRACT 倾斜触发直接进 PLAY | "平"=与地面平、规则永远一致;端平本身是要教的东西(§20.9) |
 
 ### 20.5 剩余可选打磨(非阻塞,做不做都已是完整可玩成品)
 
 1. 烘焙美术精灵图(墙/家/球各世界换皮更精致)+ 各世界给圆圆**换帽**(§18.4)。
 2. §18.5 待机微动(花摇/窄浪带/星眨/糖霜滴)——严格压在 §9.2 帧预算内。
-3. 五角星形收集物;静止眨眼;触屏直接开始(现仅倾斜触发 ATTRACT→CALIBRATE)。
+3. 五角星形收集物;静止眨眼;触屏直接开始(现仅倾斜触发 ATTRACT→PLAY)。
 4. 家长设置 **NVS 持久化**(现重启回默认:亮度/音量/震动/难度档)。
 5. ~~长 idle 深度省电~~ ✅ **已做**(2026-07-01):两级省电,深度态关屏 + 灯带熄 + 切 M-Bus 5V + IMU 降频轮询;
    若要再进一步可上真·light-sleep(需 MPU6886 INT → GPIO 唤醒,复杂度高)。
@@ -744,7 +759,7 @@ components/ imu_mpu6886 · maze_audio · ledstrip_fx · haptics
 
 ### 20.6 休眠 / 唤醒 / 背光机制(2026-07-01 实机调通)
 
-> 三级状态由 **IMU 单一信号**驱动;灯带与背光是**两条独立 AXP192 电源**,分别断/恢复。踩过的三个坑见本节末——都属「BSP 不管、得直接控 AXP192」那一类。代码在 `main/game_state.c` + `main/power.c`。
+> 三级状态由 **IMU 单一信号**驱动;灯带与背光是**两条独立 AXP192 电源**,分别断/恢复。踩过的三个坑见本节末——都属「BSP 不管、得直接控 AXP192」那一类。代码在 `components/core2_sleep`(编排)+ `components/motion_detect`(判据)+ `components/core2_power`(电源位);游戏侧每帧 `core2_sleep_feed()` 喂加速度(§20.7 组件化,时序/阈值不变)。
 
 **状态流**:`PLAY ──(机身静止 12s)──► IDLE 打盹 ──(再静止 60s)──► DEEP_IDLE 深度省电`;任一休眠态检测到「真的动了」→ `wake_from_idle()` → 回 PLAY。
 
@@ -762,16 +777,16 @@ still_frames > 750帧(12s) → enter_idle();
 ```
 woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
 ```
-`enter_deep_idle` 依次:`brightness_set(0)`(先降 DCDC3 电压)→ **`power_backlight(false)`(断 DCDC3 → 背光真全黑)** → 灯带 `LED_BASE_OFF` → `power_bus_5v(false)`(切 M-Bus 5V,断灯带供电 + 省 SY7088 静态电流)→ 轮询周期降到 `DEEP_IDLE_POLL_MS=120`(少唤醒 CPU 省电)。
+`enter_deep_idle` 依次:`brightness_set(0)`(先降 DCDC3 电压)→ **`core2_power_backlight(false)`(断 DCDC3 → 背光真全黑)** → 灯带 `LED_BASE_OFF` → `core2_power_bus_5v(false)`(切 M-Bus 5V,断灯带供电 + 省 SY7088 静态电流)→ 轮询周期降到 `DEEP_IDLE_POLL_MS=120`(少唤醒 CPU 省电)。
 
-**③ 唤醒(去抖)**:`woke_up()` 要**连续 `WAKE_DEBOUNCE_FRAMES=3` 帧** `s_motion>0.12` 才算真动(单帧噪声忽略)。`wake_from_idle` 依次:`power_bus_5v(true)` → **`power_backlight(true)`(重启 DCDC3)** → 背光回 `s_play_bright`(60%)→ 灯带 `LED_BASE_AMBIENT` → `HAPTIC_WAKE`(一下轻震)→ 回 PLAY。
+**③ 唤醒(去抖)**:`woke_up()` 要**连续 `WAKE_DEBOUNCE_FRAMES=3` 帧** `s_motion>0.12` 才算真动(单帧噪声忽略)。`wake_from_idle` 依次:`core2_power_bus_5v(true)` → **`core2_power_backlight(true)`(重启 DCDC3)** → 背光回 `s_play_bright`(60%)→ 灯带 `LED_BASE_AMBIENT` → `HAPTIC_WAKE`(一下轻震)→ 回 PLAY。
 
-**两条独立电源**(均在 `main/power.c` 经 AXP192 读改写):
+**两条独立电源**(均在 `components/core2_power` 经 AXP192 读改写):
 
 | 通道 | 供电 | 使能位 | 熄灭方法 |
 |---|---|---|---|
-| **屏背光** | AXP192 **DCDC3**(电压在 REG `0x27`) | REG `0x12` **bit1**(0x02) | `power_backlight(false)` 清 bit1 |
-| **底座灯带** | M-Bus 5V(SY7088 升压) | AXP192 **EXTEN** = REG `0x12` **bit6**(0x40) | `power_bus_5v(false)` 清 bit6 |
+| **屏背光** | AXP192 **DCDC3**(电压在 REG `0x27`) | REG `0x12` **bit1**(0x02) | `core2_power_backlight(false)` 清 bit1 |
+| **底座灯带** | M-Bus 5V(SY7088 升压) | AXP192 **EXTEN** = REG `0x12` **bit6**(0x40) | `core2_power_bus_5v(false)` 清 bit6 |
 
 **三个坑(为何这么设计)**:
 1. **打盹判据不能用球速**:机身平放但相对校准零点有残余倾斜(>死区 0.06g)时,球会**永远以 ~20px/s 慢爬**,`sp>8` 把打盹计数一直清零 → 永不打盹。→ 只看 `s_motion`(机身没动=无人玩,球爬不爬无所谓)。
@@ -779,4 +794,83 @@ woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
 3. **`brightness_set(0)` 根本不熄屏**:BSP 亮度只调 DCDC3 **电压**(公式 `reg=90+8*pct/100`,范围仅 90~98 ≈ **2.95~3.15V**),0% 还剩 2.95V,背光照亮。→ 真熄屏必须**断 DCDC3 使能**(REG 0x12 bit1)。
 
 > **关键约束复述(勿忘)**:IMU 是 **MPU6886 非 BMI270**;**永不每帧整屏重绘**(§9);关卡手工编排 + 加载 BFS 校验(§4.1/§19)。
-> 改 `sdkconfig.defaults` 后删 `sdkconfig` 再 fullclean(§14)。激活环境用 `activate_idf_v6.0.1.sh`。
+> 改 `sdkconfig.defaults` 后删 `sdkconfig` 再 fullclean(§14)。环境激活/构建/串口注意见 `README.md`「构建 / 烧录」(本机 v6.0,编译走 esp-idf MCP)。
+
+### 20.7 平台化改造(2026-07-02,行为不变的重构)
+
+> 本工程定位升级为**平台模板 + 示例应用**:外设层沉淀为可复用组件,做新 APP 直接复制
+> 工程、保留组件层、换 `main/`。**复用指南见 `docs/platform/BSP_GUIDE.md`**;
+> 各组件职责/坑/示例见 `components/*/README.md`。玩法与实机行为与 §20.1–§20.6 一致。
+
+平台化前 → 后位置对照(§20.3 已按改造后现状更新,此表记录"什么从哪来"):
+
+| 原位置 | 现位置 | 变化 |
+|---|---|---|
+| `main/power.c`(EXTEN/DCDC3) | `components/core2_power` | 提升为组件,API 前缀 `core2_power_*`;init 不再隐式开 5V(由调用方/board 开) |
+| `components/maze_audio` | `components/audio_fx` | 去应用化改名,API 前缀 `audio_fx_*`;新增 `audio_fx_play_notes()` 自定义音序 |
+| `game_state.c` 内动作检测(s_motion/去抖) | `components/motion_detect` | 抽为纯逻辑组件(feed / tick_still / tick_wake);判据与阈值不变 |
+| `app_main.c` 手工 bring-up + i2c_scan | `components/core2_board` | 一键 `core2_board_init()`,初始化顺序知识固化于此 |
+| `game_state.c` 的 ST_IDLE/ST_DEEP_IDLE 两态 + enter/wake 编排 | `components/core2_sleep` | 两级省电整体组件化:`core2_sleep_feed()` 每帧喂加速度,打盹/深度省电/唤醒(§20.6 全部时序与阈值)托管;游戏状态机只剩 ATTRACT/CALIBRATE/PLAY/WIN(CALIBRATE 随后被 §20.9 删除,现 ATTRACT/PLAY/WIN),非清醒帧跳过游戏逻辑 |
+
+`imu_mpu6886` / `ledstrip_fx` / `haptics` 未改代码,补了 README。三反馈通道共用的
+"幼儿反馈词汇表"(hello/bump×3/near/collect/win)不变。
+
+### 20.8 IMU"平放单向慢爬"修复(2026-07-02)
+
+**症状**:有时平放机身,球仍以 ~20px/s 匀速朝固定方向爬。**根因不是 IMU 硬件**:
+
+1. **校准零点被"开始手势"污染(主因)**:离开 ATTRACT 的唯一方式就是倾斜(>0.22g),
+   而旧 `calibrate_tick` 从进状态第 1 帧就无条件采样 48 帧取平均——触发倾斜只要多保持
+   ~0.2s,零点即被拖偏 ≈0.06g(恰好一个死区)。平放后残余 = 平放读数 − 污染零点 > 死区
+   → 恒定单向力。
+2. **硬死区悬崖(放大器)**:残余一旦过线(0.06g)就吃全额增益,0.07g × GAIN1800 ×
+   dt/(1−阻尼0.90) ≈ 21px/s 匀速爬(与 §20.6 记录的 ~20px/s 慢爬同源)。
+
+**修复**(`main/game_state.c` 校准 + `main/physics.c` 死区;调参新增于 tuning.h):
+
+- **校准稳定门槛**:进 CALIBRATE 后先等机身连续静止 `CALIB_SETTLE_FRAMES=10` 帧
+  (动作量 < `IDLE_STILL_THRESH=0.04`,复用 core2_sleep 维护的 motion,经新增
+  `core2_sleep_motion()` 读取)才开始采样;
+- **漂移自检**:帧间动作量测不出缓慢回正,故采样完比较前/后半窗均值差,
+  > `CALIB_DRIFT_MAX=0.03g` 判"采样中在动",作废重采;
+- **超时兜底**:两道门槛合计最多等 `CALIB_MAX_WAIT_MS=4000`,超时不再挑剔直接采
+  (孩子一直晃也能开始游戏,最差退回旧行为);
+- **死区改减除式**:只把超出死区的部分交给增益(`(tmag−死区)/tmag` 缩放),
+  消除"过线即全额恒力"的悬崖——零点即使略有污染,残余小力也会被阻尼压住。
+
+**注意**:减除式死区让小倾斜的有效力整体减小 0.06g,手感会略"重"一点;
+若实测偏慢,微调 `TILT_GAIN`(1800 → ~2000)补偿,勿动死区本身。
+**未做(可选后续)**:静止自回零(机身长时间静止且残余小则零点缓慢收敛),能自愈
+"手持校准后平放桌上"的设计性滚动;需真机调收敛速度。
+
+> ⚠️ **本节的校准稳定门槛/漂移自检已随 §20.9"绝对零点免校准"整体移除**(它们服务的
+> 校准机制不存在了);**减除式死区保留**。本节保留作为根因分析与判据设计的记录。
+
+### 20.9 绝对零点,免校准(2026-07-02 设计定案,推翻 §8.2)
+
+**定案**:删除整个校准机制。"平"= 屏幕平面与地面平(重力绝对参考),规则永远一致。
+
+**设计依据(用户拍板)**:这个游戏的目的就是让孩子学会控制设备——把设备端平正是
+要教的东西,物理滚珠迷宫玩具就是这个范式(它们从不"校准"到你的握姿)。原 §8.2 的
+姿态校准替孩子做了他能自己学会的动作,代价是:①同一物理倾斜在不同会话里对球的作用
+不同(违背"因果一致"第一性原则);②引入隐藏的、每次都变的参考系;③滋生 §20.8 那类
+零点污染 bug。斜着拿球就往下滚 → 孩子自己调整设备对抗,这就是游戏本身。
+
+**技术前提(已实机验证)**:板子加速度计偏置须小于死区 0.06g。本机平放实测
+(§20.8 版校准日志):`x=-0.023 y=-0.007 z=1.065,漂移 0.001g` —— x/y 偏置不到死区
+一半,余量充足;z 偏差不影响玩法(只用 x/y)。
+
+**落地变更**:
+- 删 `ST_CALIBRATE` 态与 `calibrate_tick`(含 §20.8 稳定门槛/漂移自检)、
+  `physics_calibrate()`、`physics_t.zero`;ATTRACT 倾斜触发**直接进 PLAY**;
+- 删家长菜单"Recal"按钮与 `game_state_request_recalibrate()`(用户明确不要修正入口);
+- 删 tuning:`CALIB_*`、`IDLE_STILL_THRESH`;
+- 低通滤波改为首帧样本自预热(原由 physics_calibrate 代做);
+- **保留**:减除式死区(§20.8)、速度封顶、轴映射。
+- **已否决**:静止自回零(偷偷移动"平"违背一致性原则)、NVS/菜单偏置修正
+  (本机余量充足;若换板偏置超死区,再议编译期常量)。
+
+**状态**:✅ **已实机验证(2026-07-02 烧录确认,如预期工作)**。
+(手感若日后觉得偏慢,调 `TILT_GAIN` 1800→~2000,勿动死区;斜着拿球向下滚属预期。)
+
+**遗留问题(待排查)**:家长菜单难以进入(底部长按 3s 判定,用户实测反馈)。

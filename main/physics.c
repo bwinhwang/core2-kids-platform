@@ -24,15 +24,9 @@ void physics_init(physics_t *p, float start_x, float start_y)
     p->pos = (vec2_t){ start_x, start_y };
     p->vel = (vec2_t){ 0, 0 };
     p->a_filt = (imu_accel_t){ 0, 0, 0 };
-    p->zero = (vec2_t){ 0, 0 };
+    p->filt_init = false;
     p->bumped = false;
     p->bump_speed = 0;
-}
-
-void physics_calibrate(physics_t *p, const imu_accel_t *avg_raw)
-{
-    p->a_filt = *avg_raw;             // 预热滤波,避免开局跳变
-    p->zero = map_axes(avg_raw);      // 这个握持姿态即"平"
 }
 
 void physics_set_position(physics_t *p, float x, float y)
@@ -45,22 +39,34 @@ void physics_set_position(physics_t *p, float x, float y)
 
 void physics_step(physics_t *p, const imu_accel_t *accel_raw, float dt)
 {
-    // 1) 低通滤波(§8.3 step2)
+    // 1) 低通滤波(§8.3 step2);首帧直接用样本预热,避免从 0 收敛的开局跳变
+    if (!p->filt_init) {
+        p->a_filt = *accel_raw;
+        p->filt_init = true;
+    }
     const float a = TILT_ALPHA;
     p->a_filt.x = p->a_filt.x * (1 - a) + accel_raw->x * a;
     p->a_filt.y = p->a_filt.y * (1 - a) + accel_raw->y * a;
     p->a_filt.z = p->a_filt.z * (1 - a) + accel_raw->z * a;
 
-    // 2) 映射到屏幕轴并减去零点 → 倾斜向量
+    // 2) 映射到屏幕轴 → 倾斜向量。绝对零点(§20.9):x/y 的重力分量就是倾斜,
+    //    "平"= 与地面平,无校准、无隐藏参考系;板偏置由死区吸收(实测 <0.03g)。
     vec2_t m = map_axes(&p->a_filt);
-    float tx = m.x - p->zero.x;
-    float ty = m.y - p->zero.y;
+    float tx = m.x;
+    float ty = m.y;
 
-    // 3) 死区(§8.3 step4):防平放时球自己飘
+    // 3) 死区(§8.3 step4,减除式):防平放时球自己飘。
+    //    只把"超出死区的部分"交给增益——硬截断会造成悬崖:零点稍被污染(>死区)
+    //    就吃全额恒力,球以 ~20px/s 匀速单向爬(§20.8 实测坑)。减除式下同样的
+    //    残余偏差只剩(残余-死区)的小力,阻尼便能压住。
     float tmag = sqrtf(tx * tx + ty * ty);
     if (tmag < TILT_DEADZONE) {
         tx = 0;
         ty = 0;
+    } else {
+        float k = (tmag - TILT_DEADZONE) / tmag;
+        tx *= k;
+        ty *= k;
     }
 
     // 4) 倾斜→加速度→速度(强阻尼)→封顶(§8.3 step5~7)

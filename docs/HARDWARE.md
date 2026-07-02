@@ -12,7 +12,7 @@
 | 触摸 | FT6336U | 内部 I2C @ 0x38,INT=39 | 仅家长菜单长按用 |
 | 音频 | NS4168 | I2S BCLK=12/LRCK=0/DATA=2 | SPK_EN=AXP192 IO2,BSP 管 |
 | 震动 | 马达 | AXP192 LDO3 | `haptics` 组件 |
-| 灯带 | 10×SK6812(Bottom2) | 数据 G25,RMT | **供电吃 M-Bus 5V,须开 AXP192 EXTEN**(`main/power.c`) |
+| 灯带 | 10×SK6812(Bottom2) | 数据 G25,RMT | **供电吃 M-Bus 5V,须开 AXP192 EXTEN**(`components/core2_power`) |
 | 电源 | AXP192 @ 0x34 | 内部 I2C | 背光=DCDC3;深度省电断 DCDC3 使能 + 切 EXTEN |
 
 > 内部 I2C 地址占用:0x34(AXP192)/ 0x38(FT6336U)/ 0x51(BM8563)/ 0x68(MPU6886)。

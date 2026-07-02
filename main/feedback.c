@@ -6,7 +6,7 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 
-#include "maze_audio.h"
+#include "audio_fx.h"
 #include "haptics.h"
 #include "ledstrip_fx.h"
 
@@ -28,13 +28,13 @@ static void dispatch_bump(float speed, float x, float y)
     // 撞击强度分级(§6.1),映射震动/音效力度
     if (speed < 90) {
         haptics_play(HAPTIC_BUMP_LIGHT);
-        maze_audio_play(SND_BUMP_LIGHT);
+        audio_fx_play(SND_BUMP_LIGHT);
     } else if (speed < 160) {
         haptics_play(HAPTIC_BUMP_MED);
-        maze_audio_play(SND_BUMP_MED);
+        audio_fx_play(SND_BUMP_MED);
     } else {
         haptics_play(HAPTIC_BUMP_HARD);
-        maze_audio_play(SND_BUMP_HARD);
+        audio_fx_play(SND_BUMP_HARD);
     }
     ledstrip_fx_trigger(LED_FX_BUMP);
     render_ball_squash();
@@ -48,7 +48,7 @@ static void feedback_task(void *arg)
         if (xQueueReceive(s_queue, &m, portMAX_DELAY) != pdTRUE) continue;
         switch (m.ev) {
             case EV_HELLO:
-                maze_audio_play(SND_HELLO);
+                audio_fx_play(SND_HELLO);
                 haptics_play(HAPTIC_HELLO);
                 ledstrip_fx_set_base(LED_BASE_AMBIENT);
                 break;
@@ -57,19 +57,19 @@ static void feedback_task(void *arg)
                 break;
             case EV_NEAR:
                 if (m.level > 0) {
-                    maze_audio_play(SND_NEAR);
+                    audio_fx_play(SND_NEAR);
                     ledstrip_fx_set_base(LED_BASE_NEAR);
                 } else {
                     ledstrip_fx_set_base(LED_BASE_AMBIENT);
                 }
                 break;
             case EV_COLLECT:
-                maze_audio_play(SND_COLLECT);
+                audio_fx_play(SND_COLLECT);
                 haptics_play(HAPTIC_COLLECT);
                 ledstrip_fx_trigger(LED_FX_COLLECT);
                 break;
             case EV_WIN:
-                maze_audio_play(SND_WIN);
+                audio_fx_play(SND_WIN);
                 haptics_play(HAPTIC_WIN);
                 ledstrip_fx_trigger(LED_FX_WIN);
                 render_win_celebrate();

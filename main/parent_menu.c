@@ -5,7 +5,7 @@
 #include "bsp/m5stack_core_2.h"
 #include "lvgl.h"
 
-#include "maze_audio.h"
+#include "audio_fx.h"
 #include "haptics.h"
 #include "game_state.h"
 
@@ -41,7 +41,7 @@ static void on_volume(lv_event_t *e)
 {
     int v = lv_slider_get_value((lv_obj_t *)lv_event_get_target(e));
     s_volume = v;
-    maze_audio_set_volume(v);
+    audio_fx_set_volume(v);
 }
 
 static void on_vib(lv_event_t *e)
@@ -56,12 +56,6 @@ static void on_band(lv_event_t *e)
     s_easy = !s_easy;
     game_state_set_level_band(s_easy ? 2 : 4);
     lv_label_set_text(s_band_lbl, s_easy ? "Levels: 2 (Easy)" : "Levels: 4 (Normal)");
-}
-
-static void on_recal(lv_event_t *e)
-{
-    close_menu();
-    game_state_request_recalibrate();
 }
 
 static void on_back(lv_event_t *e) { close_menu(); }
@@ -128,9 +122,8 @@ static void open_menu(void)
     make_btn(s_menu, 12, 104, 140, 34, s_vib ? "Vibration: ON" : "Vibration: OFF", on_vib, &s_vib_lbl);
     make_btn(s_menu, 160, 104, 148, 34, s_easy ? "Levels: 2 (Easy)" : "Levels: 4 (Normal)", on_band, &s_band_lbl);
 
-    // 重新校准 / 返回
-    make_btn(s_menu, 12, 148, 140, 42, LV_SYMBOL_REFRESH " Recal", on_recal, NULL);
-    make_btn(s_menu, 160, 148, 148, 42, LV_SYMBOL_CLOSE " Back", on_back, NULL);
+    // 返回(重新校准已随"绝对零点免校准"移除,§20.9)
+    make_btn(s_menu, 12, 148, 296, 42, LV_SYMBOL_CLOSE " Back", on_back, NULL);
 
     ESP_LOGI(TAG, "家长菜单已打开(游戏暂停)");
 }

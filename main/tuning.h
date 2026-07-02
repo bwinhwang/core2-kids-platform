@@ -28,16 +28,14 @@
 #define PHYS_DT         (1.0f / 60.0f)   // 固定 dt
 #define PHYS_PERIOD_MS  16               // 任务周期(60Hz≈16ms;FREERTOS_HZ=1000)
 
-// ── 状态机(§7)─────────────────────────────────────────────────────
-#define ATTRACT_TILT_THRESH 0.22f        // 标题页:倾斜偏移超此(g 和)→ 开始
-#define CALIB_FRAMES        48           // 校准采样帧数(~0.75s)
+// ── 状态机(§7,§20.9 绝对零点免校准:无 CALIBRATE 态)──────────────────
+#define ATTRACT_TILT_THRESH 0.22f        // 标题页:倾斜偏移超此(g 和)→ 直接开玩
 #define WIN_HOLD_MS         1800         // 过关庆祝停留时长(到下一关)
 
 // ── idle 打盹 / 唤醒 / 省电(§7, §14)──────────────────────────────────
 #define PLAY_BRIGHTNESS     60           // 常态背光(%)
 #define IDLE_BRIGHTNESS     10           // 打盹背光(%,省电护眼)
 #define IDLE_TIMEOUT_MS     12000        // PLAY 中无动作多久 → 打盹(降亮)
-#define IDLE_STILL_THRESH   0.04f        // 帧间加速度变化小于此算"没动"(g)
 #define IDLE_WAKE_THRESH    0.12f        // 帧间变化大于此算"动了" → 唤醒
 
 // 深度省电:打盹后再持续无动作 → 关屏 + 灯带熄 + 切 M-Bus 5V,IMU 降频轮询

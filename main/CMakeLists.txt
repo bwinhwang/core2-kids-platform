@@ -7,15 +7,15 @@ idf_component_register(
         "feedback.c"
         "game_state.c"
         "parent_menu.c"
-        "power.c"
     INCLUDE_DIRS
         "."
     REQUIRES
-        m5stack_core_2      # bsp_* + LVGL
-        esp_driver_i2c      # i2c_master_probe 总线扫描
+        m5stack_core_2      # bsp_* + LVGL(render/parent_menu/game_state 用)
         esp_hw_support      # esp_random()(过关彩纸)
+        core2_board         # 平台一键 bring-up
+        core2_sleep         # 两级省电编排(打盹/深度省电/唤醒)
         imu_mpu6886         # MPU6886 倾斜驱动
         ledstrip_fx         # 底座灯带
         haptics             # 震动马达
-        maze_audio          # 音效
+        audio_fx            # 音效引擎
 )
