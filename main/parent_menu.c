@@ -8,6 +8,7 @@
 #include "audio_fx.h"
 #include "haptics.h"
 #include "game_state.h"
+#include "maze.h"
 
 static const char *TAG = "parent";
 
@@ -19,7 +20,7 @@ static lv_obj_t *s_band_lbl;
 static int  s_bright = PLAY_BRIGHTNESS;
 static int  s_volume = 60;
 static bool s_vib    = true;
-static bool s_easy   = false;     // 难度档:false=普通(4 关) true=简单(2 关)
+static bool s_easy   = false;     // 难度档:false=普通(全部 8 关) true=简单(前 2 关)
 
 static void close_menu(void)
 {
@@ -54,8 +55,8 @@ static void on_vib(lv_event_t *e)
 static void on_band(lv_event_t *e)
 {
     s_easy = !s_easy;
-    game_state_set_level_band(s_easy ? 2 : 4);
-    lv_label_set_text(s_band_lbl, s_easy ? "Levels: 2 (Easy)" : "Levels: 4 (Normal)");
+    game_state_set_level_band(s_easy ? 2 : maze_level_count());
+    lv_label_set_text(s_band_lbl, s_easy ? "Levels: 2 (Easy)" : "Levels: 8 (Normal)");
 }
 
 static void on_back(lv_event_t *e) { close_menu(); }
@@ -120,7 +121,7 @@ static void open_menu(void)
 
     // 震动 / 难度
     make_btn(s_menu, 12, 104, 140, 34, s_vib ? "Vibration: ON" : "Vibration: OFF", on_vib, &s_vib_lbl);
-    make_btn(s_menu, 160, 104, 148, 34, s_easy ? "Levels: 2 (Easy)" : "Levels: 4 (Normal)", on_band, &s_band_lbl);
+    make_btn(s_menu, 160, 104, 148, 34, s_easy ? "Levels: 2 (Easy)" : "Levels: 8 (Normal)", on_band, &s_band_lbl);
 
     // 返回(重新校准已随"绝对零点免校准"移除,§20.9)
     make_btn(s_menu, 12, 148, 296, 42, LV_SYMBOL_CLOSE " Back", on_back, NULL);

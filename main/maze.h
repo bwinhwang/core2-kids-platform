@@ -27,7 +27,7 @@ typedef enum {
 typedef struct { int col, row; } cell_t;
 
 typedef struct {
-    int          id;                 // 1~4
+    int          id;                 // 1~8
     world_t      world;
     const char  *grid[MAZE_ROWS];    // 每行 8 字符
     cell_t       start;

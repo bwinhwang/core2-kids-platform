@@ -2,7 +2,8 @@
 #include "tuning.h"
 #include <math.h>
 
-// ── 关卡库(§19,4 关一关一世界,难度=拐弯数递增 + 换风景)─────────────
+// ── 关卡库(§19 原 4 关 + 2026-07-02 扩至 8 关;世界复用、每世界 2 关)──────
+// 难度=拐弯数(1/2/3/3 → 2/3/3/4);过关后随机选下一关(game_state.c win_tick)
 static const level_t k_levels[] = {
     {   // L1 · 草地(Tier 0,1 弯,引导 ON)
         .id = 1, .world = WORLD_MEADOW, .tier = 0, .guide = GUIDE_ON,
@@ -51,6 +52,54 @@ static const level_t k_levels[] = {
             "########",
         },
         .start = {1, 1}, .home = {1, 4}, .stars = {{4, 3}}, .n_stars = 1,
+    },
+    {   // L5 · 草地(Tier 1,2 弯 Z 形,引导淡)
+        .id = 5, .world = WORLD_MEADOW, .tier = 1, .guide = GUIDE_FAINT,
+        .grid = {
+            "########",
+            "###...H#",
+            "###.####",
+            "###.####",
+            "#S..####",
+            "########",
+        },
+        .start = {1, 4}, .home = {6, 1}, .n_stars = 0,
+    },
+    {   // L6 · 海边(Tier 2,3 弯 阶梯形,1 星,无引导)
+        .id = 6, .world = WORLD_SEASIDE, .tier = 2, .guide = GUIDE_OFF,
+        .grid = {
+            "########",
+            "#S#...H#",
+            "#.#.####",
+            "#.*.####",
+            "########",
+            "########",
+        },
+        .start = {1, 1}, .home = {6, 1}, .stars = {{2, 3}}, .n_stars = 1,
+    },
+    {   // L7 · 星空(Tier 2,3 弯 大回勾,1 星,无引导)
+        .id = 7, .world = WORLD_STARRY, .tier = 2, .guide = GUIDE_OFF,
+        .grid = {
+            "########",
+            "#.....S#",
+            "#.######",
+            "#.##H###",
+            "#.*..###",
+            "########",
+        },
+        .start = {6, 1}, .home = {4, 3}, .stars = {{2, 4}}, .n_stars = 1,
+    },
+    {   // L8 · 糖果(奖励关,4 弯·全库最长,1 星,无引导)
+        .id = 8, .world = WORLD_CANDY, .tier = 3, .guide = GUIDE_OFF,
+        .grid = {
+            "########",
+            "#S.....#",
+            "######.#",
+            "#H..##.#",
+            "###.*..#",
+            "########",
+        },
+        .start = {1, 1}, .home = {1, 3}, .stars = {{4, 4}}, .n_stars = 1,
     },
 };
 

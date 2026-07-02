@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_random.h"
 
 #include "bsp/m5stack_core_2.h"
 #include "imu_mpu6886.h"
@@ -38,7 +39,7 @@ static int    s_frame;                 // 进入当前状态后的帧数
 
 // M6 共享状态
 static volatile bool s_paused;
-static volatile int  s_max_levels  = 4;
+static volatile int  s_max_levels  = 4;   // game_state_start 里重设为 maze_level_count()
 static volatile int  s_play_bright = PLAY_BRIGHTNESS;
 
 // 两级省电编排器(打盹→深度省电→去抖唤醒,判据/时序见 components/core2_sleep)
@@ -94,6 +95,61 @@ static void enter_win(void)
     ESP_LOGI(TAG, "WIN: L%d 到家!", s_level->id);
 }
 
+// ── 洗牌袋选关 ───────────────────────────────────────────────────────
+// 一轮内难度档里的每关恰好出现一次(顺序随机),打完一轮重洗。
+// 独立随机(esp_random()%n)在小样本下重复感强(生日悖论),故用洗牌袋。
+#define LEVEL_BAG_MAX 16
+static int s_bag[LEVEL_BAG_MAX];
+static int s_bag_pos, s_bag_n;   // s_bag_n=0 表示袋空;难度档变化时 n 不匹配自动重洗
+
+static int bag_clamp_n(void)
+{
+    int n = s_max_levels;
+    if (n < 1) n = 1;
+    if (n > LEVEL_BAG_MAX) n = LEVEL_BAG_MAX;
+    return n;
+}
+
+static void shuffle_bag(int n)
+{
+    for (int i = 0; i < n; i++) s_bag[i] = i;
+    for (int i = n - 1; i > 0; i--) {          // Fisher–Yates
+        int j = (int)(esp_random() % (uint32_t)(i + 1));
+        int t = s_bag[i]; s_bag[i] = s_bag[j]; s_bag[j] = t;
+    }
+    s_bag_n = n;
+    s_bag_pos = 0;
+}
+
+static int next_level_from_bag(void)
+{
+    int n = bag_clamp_n();
+    if (n == 1) return 0;
+
+    if (s_bag_n != n || s_bag_pos >= s_bag_n) {
+        shuffle_bag(n);
+        // 新一轮首关不与刚玩完的那关背靠背重复
+        if (s_bag[0] == s_level_idx) {
+            int t = s_bag[0]; s_bag[0] = s_bag[n - 1]; s_bag[n - 1] = t;
+        }
+    }
+    return s_bag[s_bag_pos++];
+}
+
+// 开局关:固定 L1(最易、引导常驻),但必须计入第一轮洗牌袋——
+// 否则第一轮袋里仍含 L1,开局没几关 L1 就会再来一次(实机踩过)。
+static int first_level_from_bag(void)
+{
+    int n = bag_clamp_n();
+    if (n == 1) return 0;
+
+    shuffle_bag(n);
+    for (int i = 0; i < n; i++) {   // 把 L1(idx 0)换到轮首
+        if (s_bag[i] == 0) { s_bag[i] = s_bag[0]; s_bag[0] = 0; break; }
+    }
+    return s_bag[s_bag_pos++];      // = 0(L1),本轮已消费
+}
+
 // ── 各状态每帧 ───────────────────────────────────────────────────────
 static int near_level(vec2_t pos)
 {
@@ -115,8 +171,8 @@ static void attract_tick(const imu_accel_t *acc)
 
     if (acc && s_frame > 15) {
         float dev = fabsf(acc->x - ref.x) + fabsf(acc->y - ref.y) + fabsf(acc->z - ref.z);
-        // 绝对零点免校准(§20.9):触发即开玩,首次 s_level_idx=0
-        if (dev > ATTRACT_TILT_THRESH) { start_play(s_level_idx); return; }
+        // 绝对零点免校准(§20.9):触发即开玩;开局 L1 并计入第一轮洗牌袋
+        if (dev > ATTRACT_TILT_THRESH) { start_play(first_level_from_bag()); return; }
     }
     s_frame++;
 }
@@ -158,9 +214,7 @@ static void win_tick(void)
 {
     s_frame++;
     if (s_frame >= WIN_HOLD_FRAMES) {
-        int n = s_max_levels;
-        if (n < 1) n = 1;
-        start_play((s_level_idx + 1) % n);
+        start_play(next_level_from_bag());
     }
 }
 
@@ -214,6 +268,7 @@ void game_state_start(void)
     core2_sleep_init(&s_sleep, &scfg);
 
     s_level_idx = 0;
+    s_max_levels = maze_level_count();
     xTaskCreate(game_task, "game", 4096, NULL, 5, NULL);
 }
 
