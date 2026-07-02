@@ -1,15 +1,17 @@
 // 迷宫数据 + 关卡库 + 碰撞 + 求解性校验 (CLAUDE.md §4, §19)
 //
-// 瓦片图(thick-wall):8 列 × 6 行,cell=40px,迷宫正好铺满 320×240(无偏移)。
+// 瓦片图(thick-wall):16 列 × 12 行,cell=20px,迷宫正好铺满 320×240(无偏移)。
+// (2026-07-02 分辨率翻倍:原 8×6/40px 塞不下岔路;前期关用 2 格宽走廊保留 40px 手感,
+//  后期关 1 格宽 + 分叉/死胡同/环路。球 r=7、到家判定 GOAL_R=13 同步缩放,见 tuning.h。)
 // 瓦片:'#'=墙  '.'=路面  'S'=起点  'H'=家  '*'=星
 #pragma once
 
 #include <stdbool.h>
 #include "physics.h"   // vec2_t
 
-#define MAZE_COLS   8
-#define MAZE_ROWS   6
-#define MAZE_CELL   40.0f
+#define MAZE_COLS   16
+#define MAZE_ROWS   12
+#define MAZE_CELL   20.0f
 
 typedef enum {
     WORLD_MEADOW = 0,   // 草地
@@ -27,7 +29,7 @@ typedef enum {
 typedef struct { int col, row; } cell_t;
 
 typedef struct {
-    int          id;                 // 1~8
+    int          id;                 // 1~12
     world_t      world;
     const char  *grid[MAZE_ROWS];    // 每行 8 字符
     cell_t       start;

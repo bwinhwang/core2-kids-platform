@@ -191,7 +191,7 @@ static void play_tick(const imu_accel_t *acc)
     for (int i = 0; i < s_n_stars && i < 2; i++) {
         if (s_star_got[i]) continue;
         float dx = s_phys.pos.x - s_star_px[i].x, dy = s_phys.pos.y - s_star_px[i].y;
-        float hit = BALL_R + 9.0f;
+        float hit = BALL_R + STAR_R;
         if (dx * dx + dy * dy < hit * hit) {
             s_star_got[i] = true;
             feedback_emit_collect(s_star_px[i].x, s_star_px[i].y);

@@ -7,7 +7,6 @@
 #include "esp_random.h"
 
 #define CELL_PX  ((int)MAZE_CELL)
-#define STAR_R   9
 
 static lv_obj_t *s_scr;
 static lv_obj_t *s_maze;
@@ -78,10 +77,11 @@ void render_init(void)
     lv_obj_set_style_transform_pivot_x(s_ball, (int)BALL_R, 0);
     lv_obj_set_style_transform_pivot_y(s_ball, (int)BALL_R, 0);
 
-    s_eye_l   = make_box(s_ball, 6,  7, 8, 8, 0xFFFFFF, 999);
-    s_pupil_l = make_box(s_eye_l, 2, 2, 4, 4, 0x3A3A38, 999);
-    s_eye_r   = make_box(s_ball, 14, 7, 8, 8, 0xFFFFFF, 999);
-    s_pupil_r = make_box(s_eye_r, 2, 2, 4, 4, 0x3A3A38, 999);
+    // 球体 14px(BALL_R=7),五官等比缩小
+    s_eye_l   = make_box(s_ball, 1, 4, 5, 5, 0xFFFFFF, 999);
+    s_pupil_l = make_box(s_eye_l, 1, 1, 3, 3, 0x3A3A38, 999);
+    s_eye_r   = make_box(s_ball, 8, 4, 5, 5, 0xFFFFFF, 999);
+    s_pupil_r = make_box(s_eye_r, 1, 1, 3, 3, 0x3A3A38, 999);
 
     lv_obj_set_pos(s_ball, (int)(PLAY_W / 2 - BALL_R), (int)(PLAY_H / 2 - BALL_R));
 
@@ -103,24 +103,25 @@ void render_load_level(const level_t *lvl)
     for (int row = 0; row < MAZE_ROWS; row++) {
         for (int col = 0; col < MAZE_COLS; col++) {
             if (maze_is_wall(lvl, col, row)) continue;
-            make_box(s_maze, col * CELL_PX, row * CELL_PX, CELL_PX, CELL_PX, p.floor, 6);
+            make_box(s_maze, col * CELL_PX, row * CELL_PX, CELL_PX, CELL_PX, p.floor, 4);
         }
     }
 
-    // 家:暖色圆盘 + 持续脉动
+    // 家:暖色圆盘 + 持续脉动(直径 2×GOAL_R,略盖过 20px 家格,像陷进窝里)
     vec2_t h = maze_cell_center(lvl->home);
-    s_home = make_box(s_maze, (int)(h.x - 15), (int)(h.y - 15), 30, 30, p.home, 999);
-    lv_obj_set_style_transform_pivot_x(s_home, 15, 0);
-    lv_obj_set_style_transform_pivot_y(s_home, 15, 0);
+    s_home = make_box(s_maze, (int)(h.x - GOAL_R), (int)(h.y - GOAL_R),
+                      (int)(GOAL_R * 2), (int)(GOAL_R * 2), p.home, 999);
+    lv_obj_set_style_transform_pivot_x(s_home, (int)GOAL_R, 0);
+    lv_obj_set_style_transform_pivot_y(s_home, (int)GOAL_R, 0);
     render_home_excited(false);
 
     // 星(收集物):统一金色五角(占位圆),记下对象供拾取动画
     for (int i = 0; i < lvl->n_stars && i < 2; i++) {
         vec2_t st = maze_cell_center(lvl->stars[i]);
         s_stars[i] = make_box(s_maze, (int)(st.x - STAR_R), (int)(st.y - STAR_R),
-                              STAR_R * 2, STAR_R * 2, 0xFFD23F, 999);
-        lv_obj_set_style_transform_pivot_x(s_stars[i], STAR_R, 0);
-        lv_obj_set_style_transform_pivot_y(s_stars[i], STAR_R, 0);
+                              (int)(STAR_R * 2), (int)(STAR_R * 2), 0xFFD23F, 999);
+        lv_obj_set_style_transform_pivot_x(s_stars[i], (int)STAR_R, 0);
+        lv_obj_set_style_transform_pivot_y(s_stars[i], (int)STAR_R, 0);
     }
 
     vec2_t s = maze_cell_center(lvl->start);
@@ -150,8 +151,8 @@ void render_ball_set_pos(float cx, float cy)
     lv_obj_set_pos(s_ball, (int)(cx - BALL_R), (int)(cy - BALL_R));
     lv_obj_set_style_transform_scale_x(s_ball, LV_SCALE_NONE, 0);
     lv_obj_set_style_transform_scale_y(s_ball, LV_SCALE_NONE, 0);
-    lv_obj_set_pos(s_pupil_l, 2, 2);
-    lv_obj_set_pos(s_pupil_r, 2, 2);
+    lv_obj_set_pos(s_pupil_l, 1, 1);
+    lv_obj_set_pos(s_pupil_r, 1, 1);
     s_squash = 0;
     bsp_display_unlock();
 }
@@ -166,11 +167,11 @@ void render_ball_update(float cx, float cy, float vx, float vy)
 
     float sp = sqrtf(vx * vx + vy * vy);
 
-    // 瞳孔朝运动方向偏 ~2px("看着要去的方向",§18.4)
+    // 瞳孔朝运动方向偏 ~1px("看着要去的方向",§18.4;5px 眼配 3px 瞳)
     float ox = 0, oy = 0;
-    if (sp > 1.0f) { ox = vx / sp * 2.0f; oy = vy / sp * 2.0f; }
-    lv_obj_set_pos(s_pupil_l, (int)(2 + ox), (int)(2 + oy));
-    lv_obj_set_pos(s_pupil_r, (int)(2 + ox), (int)(2 + oy));
+    if (sp > 1.0f) { ox = vx / sp * 1.0f; oy = vy / sp * 1.0f; }
+    lv_obj_set_pos(s_pupil_l, (int)(1 + ox), (int)(1 + oy));
+    lv_obj_set_pos(s_pupil_r, (int)(1 + ox), (int)(1 + oy));
 
     // 速度方向拉伸 + 撞墙挤扁脉冲(纵压横展)
     float t = sp / VEL_MAX; if (t > 1) t = 1;
