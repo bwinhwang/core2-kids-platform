@@ -29,6 +29,17 @@ void app_main(void)
 | 5 | 灯带:先 `core2_power_bus_5v(true)` 再 `ledstrip_fx_init` | 先供电后驱动;反了=数据在跑灯全黑 |
 | 6-8 | 喇叭 / 震动 / IMU | IMU 复用内部 I2C 句柄,勿自建总线(会抢总线) |
 
+## PORT.A 外接 I2C(UNIT 单元)
+
+`core2_board_port_a()` 返回 PORT.A(G32=SDA / G33=SCL)的 `i2c_master_bus_handle_t`,
+懒加载,首次调用创建。外接 UNIT(8Encoder 0x41 / DLight 0x23 / 超声波 0x57 / 手势 0x73)
+全挂这条,与内部总线物理隔离。**端口分配:内部=I2C_NUM_1(CONFIG_BSP_I2C_NUM),PORT.A=I2C_NUM_0。**
+
+🔴 **坑:PORT.A 的 5V 来自 M-Bus 5V(EXTEN)** ——插 USB 时 VBUS 直通掩盖问题,
+拔线用电池时 EXTEN 没开单元就断电("插电脑能玩、拔线失灵")。`core2_board_init`
+(enable_leds=true)已代开;深度省电切 5V 时 PORT.A 单元同样断电、恢复后单元内部
+状态(如 8Encoder 的 LED/计数)已复位,应用要自己重建。
+
 ## 失败语义
 
 - 返回 `ESP_ERR_NOT_FOUND` = 没扫到 0x68 → **Bottom2 底座没接**(IMU/电池都来自底座)。
