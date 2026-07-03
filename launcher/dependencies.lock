@@ -10,7 +10,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/esp_codec_dev:
-    component_hash: 9293329ccb361f67c6e847ab8f693b2d9158b2e438eff583c28558c29cdf3dca
+    component_hash: 896c67360ae1f8dedaf8a53dfe48c015317fa455f061a5165307892296990028
     dependencies:
     - name: idf
       require: private
@@ -18,7 +18,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.5.9
+    version: 1.5.10
   espressif/esp_lcd_ili9341:
     component_hash: 0baab584e0e490511d6bdbae6aa045130424d732ecdaad6cd1d3bd3c0abe2c30
     dependencies:
@@ -112,14 +112,14 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 6.0.1
+    version: 6.0.0
   lvgl/lvgl:
-    component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
+    component_hash: b702d642e03e95928046d5c6726558e6444e112420c77efa5fdb6650b0a13c5d
     dependencies: []
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 9.4.0
+    version: 9.3.0
 direct_dependencies:
 - espressif/led_strip
 - espressif/m5stack_core_2

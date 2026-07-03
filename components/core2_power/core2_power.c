@@ -58,3 +58,17 @@ esp_err_t core2_power_backlight(bool on)
     if (err != ESP_OK) ESP_LOGW(TAG, "切换背光 DCDC3(%d)失败: %s", on, esp_err_to_name(err));
     return err;
 }
+
+bool core2_power_pek_pressed(void)
+{
+    if (!s_axp) return false;
+    uint8_t reg = 0x46, val = 0;   // IRQ 状态3:bit1=PEK 短按,bit0=PEK 长按
+    if (i2c_master_transmit_receive(s_axp, &reg, 1, &val, 1, 1000) != ESP_OK) return false;
+    if (val & 0x03) {              // 写 1 清除
+        uint8_t out[2] = { 0x46, (uint8_t)(val & 0x03) };
+        i2c_master_transmit(s_axp, out, sizeof(out), 1000);
+    }
+    // 短按/长按都算"按过":BSP 配置(REG 0x36=0x4C)下按住 ≥1s 只报"长按",
+    // 只认短按会漏掉按得稍久的一下(见头文件注释,实机踩坑)
+    return (val & 0x03) != 0;
+}

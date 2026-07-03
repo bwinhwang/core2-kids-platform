@@ -1,6 +1,21 @@
-# Core2 16MB flash 分区表
-# Name,     Type, SubType, Offset,   Size,   Flags
-nvs,        data, nvs,     0x9000,   0x6000,
-phy_init,   data, phy,     0xf000,   0x1000,
-factory,    app,  factory, 0x10000,  3M,
-storage,    data, spiffs,  ,         2M,
+# Core2 16MB flash —— 多 App 分区表(factory=launcher + 6 游戏槽 + 共享素材区)
+#
+# ⚠️ 本表被 launcher/ 与 apps/* 所有工程共用(唯一真源),定案即冻结:
+#    改任何偏移/尺寸 = 所有分区错位 = 必须全量重刷。加新游戏只占用预留槽,不改表。
+# 槽位分配(烧录偏移速查见 tools/flash_map.md):
+#    factory = launcher(选择页)          ota_0 = tilt_maze(倾斜迷宫)
+#    ota_1~5 = 预留(躲猫猫/空气琴/忙碌台/哨兵/…)
+#    storage = 共享素材区(将来烘焙精灵图/音效,所有 App 可读)
+#
+# Name,     Type, SubType,  Offset,    Size,     Flags
+nvs,        data, nvs,      0x9000,    0x4000,
+otadata,    data, ota,      0xd000,    0x2000,
+phy_init,   data, phy,      0xf000,    0x1000,
+factory,    app,  factory,  0x10000,   0x180000,
+ota_0,      app,  ota_0,    0x190000,  0x200000,
+ota_1,      app,  ota_1,    0x390000,  0x200000,
+ota_2,      app,  ota_2,    0x590000,  0x200000,
+ota_3,      app,  ota_3,    0x790000,  0x200000,
+ota_4,      app,  ota_4,    0x990000,  0x200000,
+ota_5,      app,  ota_5,    0xB90000,  0x200000,
+storage,    data, spiffs,   0xD90000,  0x270000,

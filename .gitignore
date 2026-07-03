@@ -1,10 +1,10 @@
-# ESP-IDF 构建产物
-/build/
+# ESP-IDF 构建产物(launcher/ 与 apps/* 各工程都会生成)
+build/
 sdkconfig
 sdkconfig.old
 
 # 组件管理器拉取的托管依赖(由 idf_component.yml + *.lock 复现)
-/managed_components/
+managed_components/
 
 # 编辑器/系统
 .vscode/

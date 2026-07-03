@@ -1,0 +1,25 @@
+# ── 平台共享 sdkconfig 默认值(launcher/ 与 apps/* 所有工程共用)─────────────
+# 各工程 CMakeLists.txt 通过 SDKCONFIG_DEFAULTS 引入本文件 + 工程自己的 sdkconfig.defaults
+# (工程本地文件负责差异项,目前只有 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME 的相对路径)。
+# 改本文件后必须: 各工程 rm -f sdkconfig && fullclean && build  (AGENTS.md §3)
+
+# 经典 ESP32(Core2 是 ESP32-D0WDQ6-V3 / LX6,不是 S3)
+CONFIG_IDF_TARGET="esp32"
+
+# 16MB flash(Core2_v1_0.md §1)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# 自定义分区表(仓库根 partitions.csv,唯一真源;文件路径由各工程 defaults 给出)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# 8MB PSRAM(经典 ESP32 直映射上限 ≈4MB;大缓冲按 4MB 算)
+CONFIG_SPIRAM=y
+
+# Core2 V1.0 的 PMU 是 AXP192(V1.1 才是 AXP2101)——选错屏黑/无声/无触摸
+CONFIG_BSP_PMU_AXP192=y
+
+# 1000Hz tick:60Hz 固定 dt 物理循环需要 <16.67ms 的调度粒度(默认 100Hz 不够)
+CONFIG_FREERTOS_HZ=1000
+
+# 初始化阶段 BSP/LVGL 起步较吃栈
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

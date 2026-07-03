@@ -18,4 +18,5 @@ idf_component_register(
         ledstrip_fx         # 底座灯带
         haptics             # 震动马达
         audio_fx            # 音效引擎
+        app_slot            # 多 App 分区自举(回 launcher / 电源键退出)
 )

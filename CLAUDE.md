@@ -923,3 +923,30 @@ woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
   另报告死胡同/岔口/环路数与最短路长/弯数(本次即抓出 2 处手误)。
 - ✅ build + flash 通过(esp-idf MCP),开机日志干净;⏳ 待实机确认:窄走廊手感
   (若太难压 `VEL_MAX` 220→~160 更从容,勿改地图)、20px 门洞通过性、新尺寸下的视觉。
+
+### 20.13 多 App 分区改造:launcher + 单刷游戏 bin(2026-07-03)
+
+- **仓库升级为"游戏卡带机"**:factory 分区常驻 **launcher 选择页**(`launcher/` 工程),
+  6 个 ota 槽各放一个独立游戏 bin;**改一个游戏只重编+单刷它自己(~600KB)**,launcher
+  与其它游戏零风险。机制 = IDF otadata 启动选择(`esp_ota_set_boot_partition`,无网络成分),
+  组件化为 `components/app_slot`;分区表全表重写(`partitions.csv`:factory 1.5M +
+  ota_0~5 各 2M + spiffs ~2.4M,**定案冻结,改表=全量重刷**),烧录对照 `tools/flash_map.md`。
+- **本应用(倾斜迷宫)迁至 `apps/tilt_maze/`(占 ota_0),根目录不再是可构建工程**;
+  玩法/调参零改动,只加三处:app_main 第一行 `app_slot_return_to_factory()`(此后任何
+  复位/崩溃都回 launcher,crash-safe)、`app_slot_enable_button_exit()`(**电源键按一下=
+  回 launcher**,AXP192 PEK REG 0x46,`core2_power_pek_pressed()`;🔴 短按/长按标志都要算:
+  BSP 写 REG 0x36=0x4C → 按住 ≥1s 只报"长按"bit0、≥4s AXP 硬断电,首版只认短按 bit1
+  时灵时不灵——2026-07-03 实机踩坑修正,轮询 150ms+命中先轻震确认,详见
+  `components/app_slot/README.md`)、家长菜单增 Home 按钮。各工程共享根部 `components/`、`partitions.csv`、`sdkconfig.platform`
+  (经 `SDKCONFIG_DEFAULTS`/`EXTRA_COMPONENT_DIRS` 跨目录引用,已验证可行)。
+- **构建方式变化**:esp-idf MCP 的 build 固定指向仓库根、不支持选工程目录,多工程后
+  编译改走命令行 `idf.py -C launcher|apps/<app> build`。🔴 **游戏工程严禁 `idf.py flash`**
+  (会烧 0x10000 覆盖 launcher);单刷用 `esptool write-flash <槽偏移> <bin>`
+  (见 `tools/flash_map.md` / `flash_one.sh`)。新游戏脚手架:`tools/new_app.sh <名>`。
+- **launcher 形态**:暖色卡带架(3×2 大图标,空槽灰显但点了也有回应)+ 吉祥物浮动;
+  点图标 → 校验镜像 → 重启进游戏(~2-3s 黑屏,物理卡带机固有体验);久置走 core2_sleep
+  两级省电。二期预留:PORT.A 探测 I2C 单元(DLight 0x23/8Encoder 0x41/超声波 0x57/
+  手势 0x73)→"插卡带即启动"(launcher/main/app_main.c 头注释有预留位)。
+- ✅ launcher(608KB)与 tilt_maze(648KB)双工程 build 通过(各槽余 ~60%);
+  ⏳ 待实机:全量刷 launcher → 单刷 ota_0 → 验收"点图标进迷宫/电源键短按回 launcher/
+  Home 回 launcher/断电重启回 launcher/单刷迭代不动 launcher"。

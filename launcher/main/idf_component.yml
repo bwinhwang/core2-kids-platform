@@ -1,0 +1,6 @@
+dependencies:
+  idf: ">=5.3"
+  # Core2 BSP:AXP192 电源 / ILI9342C LCD / FT6336 触摸 / LVGL / NS4168 喇叭一站式
+  espressif/m5stack_core_2: "^3.0.1"
+  # 底座 SK6812 ×10 @ G25(RMT 后端;经 core2_board→ledstrip_fx 使用)
+  espressif/led_strip: "^3.0.0"

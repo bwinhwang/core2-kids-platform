@@ -2,9 +2,11 @@
 #include "tuning.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "bsp/m5stack_core_2.h"
 #include "lvgl.h"
 
+#include "app_slot.h"
 #include "audio_fx.h"
 #include "haptics.h"
 #include "game_state.h"
@@ -60,6 +62,14 @@ static void on_band(lv_event_t *e)
 }
 
 static void on_back(lv_event_t *e) { close_menu(); }
+
+static void on_home(lv_event_t *e)
+{
+    // 回 launcher(开机已设过 factory,重申一次再重启;电源键短按同效)
+    ESP_LOGI(TAG, "家长菜单 Home → 回 launcher");
+    app_slot_return_to_factory();
+    esp_restart();
+}
 
 // ── 小工具:做一个带文字的按钮 ───────────────────────────────────────
 static lv_obj_t *make_btn(lv_obj_t *parent, int x, int y, int w, int h,
@@ -123,8 +133,9 @@ static void open_menu(void)
     make_btn(s_menu, 12, 104, 140, 34, s_vib ? "Vibration: ON" : "Vibration: OFF", on_vib, &s_vib_lbl);
     make_btn(s_menu, 160, 104, 148, 34, s_easy ? "Levels: 2 (Easy)" : "Levels: 8 (Normal)", on_band, &s_band_lbl);
 
-    // 返回(重新校准已随"绝对零点免校准"移除,§20.9)
-    make_btn(s_menu, 12, 148, 296, 42, LV_SYMBOL_CLOSE " Back", on_back, NULL);
+    // Home=回 launcher 选择页;Back=关菜单继续玩(重新校准已随§20.9移除)
+    make_btn(s_menu, 12, 148, 140, 42, LV_SYMBOL_HOME " Home", on_home, NULL);
+    make_btn(s_menu, 160, 148, 148, 42, LV_SYMBOL_CLOSE " Back", on_back, NULL);
 
     ESP_LOGI(TAG, "家长菜单已打开(游戏暂停)");
 }

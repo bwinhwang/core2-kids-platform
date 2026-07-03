@@ -1,0 +1,4 @@
+# launcher 工程差异项(共享默认值见 ../sdkconfig.platform,由工程 CMakeLists 一并引入)
+
+# 分区表在仓库根(所有工程共用同一份;路径相对本工程目录)
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../partitions.csv"

@@ -1,15 +1,20 @@
 # BSP_GUIDE.md —— 平台外设层复用指南(新应用必读)
 
 > 本工程的核心价值:**Core2 v1.0 + M5GO Bottom2 的外设层已实机调通一次,沉淀为
-> `components/` 下的可复用组件**。做新应用 = 复制本工程 → 保留组件层 → 换掉 `main/`
-> 里的应用逻辑。板级事实见 `Core2_v1_0.md` / `M5GO_Bottom2.md`(勿改);
+> `components/` 下的可复用组件**。做新应用 = **在 `apps/` 下新建工程**(参考
+> `apps/tilt_maze`,可用 `tools/new_app.sh` 脚手架),共享仓库根的 `components/`、
+> `partitions.csv`、`sdkconfig.platform`;编好的 bin 单刷进自己的 ota 游戏槽,
+> 由 factory 分区的 **launcher** 选择启动(机制见 `components/app_slot/README.md`,
+> 偏移见 `tools/flash_map.md`)。板级事实见 `Core2_v1_0.md` / `M5GO_Bottom2.md`(勿改);
 > 本文讲"怎么复用、顺序为什么、坑在哪"。
 
 ## 1. 分层架构
 
 ```
-main/                     应用逻辑(每个 APP 自己的:状态机/玩法/渲染/反馈编排/调参)
+launcher/                 factory 分区常驻的游戏选择页(上电入口)
+apps/<app>/main/          应用逻辑(每个 APP 独立工程:状态机/玩法/渲染/反馈编排/调参)
 ────────────────────────────────────────────────────────────────────
+components/app_slot       多 App 分区自举(launch/回 launcher/电源键退出)
 components/core2_board    ★ 平台一键 bring-up(固化初始化顺序,新应用从这里开始)
 components/core2_power    AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)
 components/imu_mpu6886    MPU6886 三轴加速度(0x68,复用 BSP I2C)
@@ -29,12 +34,17 @@ managed_components/       espressif/m5stack_core_2(AXP192/LCD/触摸/LVGL/喇叭
 ## 2. 新应用最小骨架
 
 ```c
+#include "app_slot.h"
 #include "core2_board.h"
 
 void app_main(void)
 {
+    app_slot_return_to_factory();   // 第一行:之后任何复位/崩溃都回 launcher
+
     core2_board_cfg_t cfg = CORE2_BOARD_CFG_KIDS_DEFAULT;  // 全开;不用的外设置 false
     ESP_ERROR_CHECK(core2_board_init(&cfg));
+
+    app_slot_enable_button_exit();  // 电源键短按 = 回 launcher(平台统一约定)
 
     // ↓ 从这里写你的应用(屏用 LVGL,记得 bsp_display_lock/unlock)
     audio_fx_play(SND_HELLO);
@@ -43,9 +53,12 @@ void app_main(void)
 }
 ```
 
-`main/CMakeLists.txt` 的 `REQUIRES` 加 `core2_board`(+ 直接用到的组件);
-`sdkconfig.defaults` / `partitions.csv` / `dependencies.lock` 原样保留
-(**PSRAM、`CONFIG_BSP_PMU_AXP192=y`、1kHz tick 是平台前提,别删**)。
+工程骨架(`tools/new_app.sh <名字>` 可自动生成,或照抄 `apps/tilt_maze`):
+`apps/<名字>/CMakeLists.txt` 用 `SDKCONFIG_DEFAULTS` 引入共享 `../../sdkconfig.platform`
++ 本地 `sdkconfig.defaults`(内容只有分区表相对路径),`EXTRA_COMPONENT_DIRS` 指向
+`../../components`;`main/CMakeLists.txt` 的 `REQUIRES` 加 `core2_board`、`app_slot`
+(+ 直接用到的组件)(**PSRAM、`CONFIG_BSP_PMU_AXP192=y`、1kHz tick 是平台前提,别删**)。
+🔴 烧录只许单刷自己的 ota 槽(`tools/flash_map.md`),**严禁 `idf.py flash`(覆盖 launcher)**。
 
 ## 3. 初始化顺序(core2_board 已固化;绕过它手工初始化时必须遵守)
 
