@@ -20,10 +20,17 @@ static const char *TAG = "unit_8encoder";
 static i2c_master_dev_handle_t s_dev;
 
 // ── 寄存器读写小工具(与官方库同粒度:一个值一次事务)──────────────────
+// 🔴 读必须"写寄存器号+STOP,再单独发起读"(两笔事务),严禁 i2c_master_transmit_receive!
+// 内部固件只在收到 STOP(HAL_I2C_ListenCpltCallback)时才解析寄存器号、准备回读数据;
+// repeated-start 组合读会让从机拿着未初始化的 tx_len=0 进入发送态 → 无限拉伸 SCL
+// 钳死总线,断电才能恢复(2026-07-05 实机+固件源码双定案,见 Unit 文档 §5.1.1)。
+// 官方 Arduino 库/UIFlow 库同为"写完 STOP 再读",从未踩此坑。
 static esp_err_t reg_read(uint8_t reg, uint8_t *buf, size_t len)
 {
     if (!s_dev) return ESP_ERR_INVALID_STATE;
-    return i2c_master_transmit_receive(s_dev, &reg, 1, buf, len, I2C_TIMEOUT_MS);
+    esp_err_t err = i2c_master_transmit(s_dev, &reg, 1, I2C_TIMEOUT_MS);
+    if (err != ESP_OK) return err;
+    return i2c_master_receive(s_dev, buf, len, I2C_TIMEOUT_MS);
 }
 
 static esp_err_t reg_write(uint8_t reg, const uint8_t *data, size_t len)

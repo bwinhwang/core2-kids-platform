@@ -996,21 +996,24 @@ woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
   `ENC_COUNTS_PER_LEVEL`、就地灯亮度 `KNOB_LED_MAX=110`(按键极性已核实无需标定)。
 - launcher 加 busy_knobs 专属图标分支(三旋钮+音柱,**要重刷 launcher 才显示**;不刷也能玩,
   显示通用笑脸)。烧录:`tools/flash_one.sh busy_knobs`(= esptool write-flash 0x390000)。
-- 🔴 **排障终局(2026-07-03,5 轮日志迭代)**:恢复 v2 完美执行后——复电前线平 1/1
-  (主机侧已释放)、复电 150ms 全总线扫描干净(**0x41/0x54 任何地址都无应答**)、
-  约 2s 后总线重新被拽死。判决:**单元 DOA(5V→3.3V 电路故障,STM32 从未运行,
-  半供电轨钳死 I2C 线),建议换货**;主机侧全部嫌疑被超声波 A/B 测试实测排除
-  (同口同线即扫到 0x57)。完整推理链/不确定性/评审问题见根目录
-  `8encoder_debug_report.md`(交外部 AI 评审用,评审后可删或归档 docs/)。
-- **当前开发状态(会话交接,2026-07-03)**:
-  ①代码全部完成且 build 通过(busy_knobs 0x99430、launcher 0x980c0,均槽余 60%),
-  **全部未提交**(工作树:改 core2_board/launcher/tools/docs/CLAUDE.md,新增
-  apps/busy_knobs + components/units;按项目惯例等实机验收后再提交);
-  ②实机现状:用户已刷最新 busy_knobs(恢复 v2)至 ota_1;launcher 仓库版含
-  busy_knobs 图标+G32/33 预上拉,**用户是否已重刷 launcher 未确认**(未刷则显示
-  通用笑脸,不影响玩);③**阻塞点:等换货的 8Encoder 到货**——插上即自动接管
-  (热插拔+自愈已内置,无需再刷固件);④到货后待办:若新单元同症状→按报告 §6.4
-  预案(USB 直供对照/量 3V3,首要嫌疑升为 SY7088 浪涌交互);正常接管后实机标定
+- 🔴 **排障终局(2026-07-05 三审定谳:单元无罪,是本仓库驱动的读法错了)**:真凶 =
+  `unit_8encoder` 驱动用 `i2c_master_transmit_receive`(**repeated-start 组合读**),
+  而 8Encoder 内部固件只在收到 **STOP** 时才解析寄存器号、准备回读数据——
+  repeated-start 读让从机拿着 `tx_len=0` 进发送态 → 无限拉伸 SCL 钳死总线、断电才
+  恢复。**修复 = `reg_read` 拆成"写寄存器号+STOP,再单独读"两笔事务**(一行级改动),
+  2026-07-05 实机验证即插即用(`8Encoder 就绪 @0x41,FW v1`)。定谳对照 = 用户给
+  Core2 刷 UIFlow2(官方库=写完 STOP 再读)同机同口正常游玩;S3 `i2cget` 挂死只因
+  它同用 repeated-start,不是单元坏。此前两轮误判(DOA 换货/应用固件死机)全部作废,
+  **换货无必要**;读协议红线见 `docs/units/Unit_8Encoder.md` §5.1.1,连环误判的
+  检讨见 `8encoder_debug_report.md` §8。
+- **当前开发状态(2026-07-05,阻塞解除)**:
+  ①驱动修复(repeated-start → 两笔事务)后,因 UIFlow 实验覆盖过整片 flash,已做
+  **全量恢复烧录**(bootloader+分区表+otadata+launcher+tilt_maze+busy_knobs,均
+  Hash verified),busy_knobs 开机日志确认 **8Encoder 已接管**、用户实测旋钮正常;
+  ②代码**全部未提交**(工作树:改 core2_board/launcher/tools/docs/CLAUDE.md + 本次
+  unit_8encoder 修复,新增 apps/busy_knobs + components/units;按项目惯例等验收后
+  一并提交);③换货已无必要(单元本就无罪,原单元即当前在用);④剩余待办:实机标定
   `ENC_DIR`/`ENC_COUNTS_PER_LEVEL`/`KNOB_LED_MAX`(tuning.h),验收"转/按/拨即时
   反馈、全满庆祝、打盹-旋钮唤醒、深度省电-拿起唤醒-灯重建、拔线提示卡、电源键回
-  launcher",通过后一并提交(§20.14 全部内容 + 调参定案)。
+  launcher",通过后提交(§20.14 全部内容 + 调参定案);⑤仓库根的 4 份原理图 PDF、
+  debug2.txt、temp-project.m5f2 为排查期资料,可归档 docs/ 或删除。

@@ -84,6 +84,47 @@
   断电,卡死会跨重启存活——必须真切 5V 或拔插 Grove 线。
 - 上电时 9 颗 RGB **默认全灭**,"插上不亮灯"不能作为单元没电/坏了的证据。
 
+### 5.1.1 🔴 读协议红线:必须"写寄存器号+STOP,再单独发起读"——repeated-start 组合读会钳死总线(2026-07-05 定谳)
+
+- 内部固件**只在收到 STOP**(`HAL_I2C_ListenCpltCallback`)或收满 50 字节时才解析
+  寄存器号并准备回读数据(`i2c2_set_send_data`);**repeated-start 组合读**(IDF 的
+  `i2c_master_transmit_receive`、i2c_tools 的 `i2cget` 等)到达读方向 ADDR 时数据
+  还没备好,从机拿着未初始化的 `tx_len=0` 进发送态 → TXDR 永远没数据 → **外设无限
+  拉伸 SCL 钳死总线,断电才恢复**(固件的 505ms 自恢复只补 EnableListen+NACK,
+  解不开发送态拉伸)。
+- **症状签名**:`i2cdetect` 能看到 0x41(地址 ACK 是外设硬件行为,不代表固件读法
+  兼容),**第一笔寄存器读即 timeout,随后全总线 probe 超时直到断电**。经典 ESP32
+  与 S3 同症。⚠️ 这个签名曾被连续误判为"单元 DOA/固件死机"(2026-07-03~05,
+  两轮误判的检讨见仓库根 `8encoder_debug_report.md` §8)——**先改读法,再怀疑硬件**。
+- 正确姿势 = 官方 Arduino 库/UIFlow 库的做法:`write(reg)` + STOP,再 `read(n)`,
+  **两笔独立事务**。本仓库驱动 `unit_8encoder.c reg_read()` 已按此实现(源码有红线
+  注释),**勿改回 transmit_receive**。此红线适用于所有"从机是 MCU 固件"的 Unit;
+  AXP192/MPU6886 这类硬件寄存器机不受影响。
+- 原理图(`SCH_UNIT_8Encoder_V1.01`)硬事实:SDA/SCL 板载 **4.7k 上拉到单元 3V3**
+  (R3/R4)→ 主机无须外加上拉;5V→3.3V 是 **BL8075 LDO**;板上有 **SWD 座
+  (J2:SWCLK/SWDIO/NRST/3V3/GND)**,真需要时可重刷内部固件(§1 开源,§5.1.2 IAP)。
+
+### 5.1.2 bootloader IAP 刷写协议(内部固件源码逐行核实,2026-07-05)——无需 ST-Link 的复活路径
+
+源码:`M5Unit-8Encoder-Internal-FW/bootloader/basex_bootloader/Core/Src/main.c`(本地已下载,仓库根同名目录)。
+
+- **进入引导态**:单元上电后 bootloader 延时 300ms **单次采样** PB10/PB11(=SCL/SDA):
+  **双低 → 留在 IAP(0x54)**;否则校验 `0x08001000` 首字(应用初始 SP)后跳应用。
+  主机可控地强制进入:G32/33 驱为低 → EXTEN 断电重启 5V → 保持低 ≥400ms → 释放。
+  (官方 bug:`iap_gpio_init` 把上拉配到了 **GPIOA** 却检测 **GPIOB**,故判定完全依赖
+  板载 R3/R4 外部上拉——单元 3V3 正常时无碍。)
+- **刷写协议(I2C @0x54,全部为普通写事务)**:
+  - `0x06`(WREN)+ 4 字节 flash 地址(**大端**)+ 2 字节长度 + 1 字节填充 + **1024 字节页数据**
+    = 单笔 1032 字节写事务;bootloader 在 STOP 后擦该页并烧写整 1KB。
+  - `0x77`(USRCD)= 跳转应用。
+  - **没有读回/校验命令**(OPC_READ 被注释掉),验证方式只有"跳应用后 0x41 能否服务寄存器读"。
+- ⚠️ **Write_Code 无地址保护**:传 `0x08000000~0x08000FFF` 会把 bootloader 自己擦掉,变真砖。
+  **只允许写 `0x08001000` 起的应用区**(共 60 页 ×1KB 到 0x0800FFFF)。
+  每页之间主机要等擦写完成(期间 IAP 关中断,从机会拉伸/不应答,建议页间延时 ≥100ms 或失败重试)。
+- **官方成品固件**:`firmware/M5Unit-8Encoder-Internal-FW-V2.hex` = **完整 64KB 镜像**
+  (0x08000000 起,含 bootloader+应用);IAP 复活只取其 0x1000 偏移起的应用部分逐页下发。
+- 应用固件用 `IAP_Set()` 把向量表复制到 SRAM 并重映射(应用链接在 0x08001000,正常现象)。
+
 ### 5.2 其它易错点
 
 - 🔴 **必须插 Core2 机身侧面的红色 PORT.A 口**。叠 M5GO Bottom2 后系统共 3 个 Grove 口,
