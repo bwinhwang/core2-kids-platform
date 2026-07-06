@@ -32,6 +32,14 @@
 #define WIN_HOLD_MS         2600   // 庆祝持续
 #define SINK_MS             900    // 庆祝后音柱缓缓落回 0 的时长
 
+// ── 图案彩蛋 & 摇一摇(趣味增量)──────────────────────────────────────
+#define ARP_MS              42     // "演奏这一排"每个音的时长(8 音 × ≤400ms 上限)
+#define ARP_AMP             55     // 图案彩蛋 arp 响度(0~100)
+#define SHAKE_THRESH        1.2f   // 帧间三轴加速度变化和 > 此值算"晃了一下"(g;桌面转旋钮远达不到)
+#define SHAKE_NEEDED        3      // 带泄漏地攒够几下才算"摇一摇",防单次磕碰/放桌误触
+#define SHAKE_COOLDOWN_MS   1500   // 触发后冷却,防一次摇晃连发
+#define SHUFFLE_MS          520    // 摇一摇后音柱洗到新队形的动画时长
+
 // ── 省电(core2_sleep 托管;旋钮活动也算"有人玩")───────────────────────
 #define PLAY_BRIGHTNESS     60
 #define NAP_BRIGHTNESS      10

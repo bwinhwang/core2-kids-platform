@@ -1017,3 +1017,26 @@ woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
   反馈、全满庆祝、打盹-旋钮唤醒、深度省电-拿起唤醒-灯重建、拔线提示卡、电源键回
   launcher",通过后提交(§20.14 全部内容 + 调参定案);⑤仓库根的 4 份原理图 PDF、
   debug2.txt、temp-project.m5f2 为排查期资料,可归档 docs/ 或删除。
+
+### 20.15 busy_knobs 趣味增量:图案彩蛋 + 摇一摇(2026-07-06,实机验收通过)
+
+> 在 §20.14 忙碌台基础上加两条,只动 `apps/busy_knobs/main/knobs_game.c` + `tuning.h`,
+> **不碰任何组件**;守零失败/即时因果/多通道冗余/渲染红线(只动脏矩形,无整屏重绘)。
+
+- **图案彩蛋(不止"全满")**:每次转旋钮改档后 `detect_pattern()` 扫一遍 8 柱队形——
+  上楼梯 / 下楼梯(严格增/减)、一条线(全等高且 >0)、小山 / 山谷(单峰/谷、不在两端)——
+  命中即小庆祝 `pattern_reward()`:**按柱高左→右弹 8 音**(一次 `audio_fx_play_notes`,
+  <400ms;天然"听出形状")+ 8 柱错峰波浪小跳 + 底座灯 `LED_FX_COLLECT` 扫圈 + 轻震。
+  **不改档位、不重置**(找到接着玩);`s_last_pattern` 记忆 → 同图案只贺一次,变了才重贺。
+  "全 8 满"仍是最高优先级的大庆祝(`enter_win`,命中即 return,不再判图案)。win 收场重置
+  档位时一并 `s_last_pattern = PAT_NONE`。
+- **摇一摇 → 洗成新队形(用上平时只做休眠检测的 IMU)**:`game_task` 本就每帧读加速度,
+  加帧间三轴变化和 `d`;`d > SHAKE_THRESH` 带**泄漏计数**(低于阈值就 −1),攒够
+  `SHAKE_NEEDED` 且不在冷却 + 清醒 + ST_PLAY + 单元在位 → `trigger_shuffle()`:8 柱洗成
+  上/下楼梯或小山(`esp_random()%3`)+ 滑音 + 中震 + 底座彩虹 + 就地灯刷新,`SHAKE_COOLDOWN_MS`
+  冷却防连发。泄漏 + 高阈值(桌面转旋钮 `d` 远达不到 1.2g)防单次磕碰/放桌误触。
+- **tuning.h 新增(实机验收沿用默认,可再调)**:`ARP_MS=42`/`ARP_AMP=55`、
+  `SHAKE_THRESH=1.2`(g,灵敏度**最可能要标定**的一个:没反应调低、误触调高)、
+  `SHAKE_NEEDED=3`(想更跟手降到 2)、`SHAKE_COOLDOWN_MS=1500`、`SHUFFLE_MS=520`。
+- ✅ build 通过(app 0x999f0,槽内余 60%)+ **2026-07-06 实机验收通过**。烧录仍走
+  `tools/flash_one.sh busy_knobs`(= esptool write-flash 0x390000,launcher/其它槽不动)。
