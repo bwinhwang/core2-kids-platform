@@ -950,3 +950,70 @@ woke_up() ? wake : (frame++, frame>3750帧(60s) → enter_deep_idle());
 - ✅ launcher(608KB)与 tilt_maze(648KB)双工程 build 通过(各槽余 ~60%);
   ⏳ 待实机:全量刷 launcher → 单刷 ota_0 → 验收"点图标进迷宫/电源键短按回 launcher/
   Home 回 launcher/断电重启回 launcher/单刷迭代不动 launcher"。
+
+### 20.14 第二槽游戏:busy_knobs 旋钮忙碌台(8Encoder,2026-07-03)
+
+- **新游戏 `apps/busy_knobs/` 占 ota_1(0x390000)**,外设 = Unit 8Encoder(PORT.A @0x41,
+  硬件事实见 `docs/units/Unit_8Encoder.md`)。玩法 = 电子忙碌板(busy board 范式,零失败):
+  **8 个旋钮 ↔ 屏上 8 根彩虹音柱**——转 = 柱子升降(7px/档,0~24 档)+ C 大调五声音阶"叮"
+  (音高=高度,怎么乱转都和谐)+ 旋钮就地 RGB 随档位变亮;按 = 柱顶小脸唱歌弹跳 + 闪白 + 轻震;
+  **8 柱全拉满 = 庆祝彩蛋**(SND_WIN + 三连震 + 底座灯彩虹 + 音柱波浪弹跳 + 旋钮灯跑马,
+  然后缓缓落回 0 重新玩);拨动开关 = 白天/黑夜换景(天色 + 太阳↔月亮 + 星星)。
+- **平台新增(可复用)**:①`core2_board_port_a()`——PORT.A 外接 I2C 懒加载
+  (G32/G33,**I2C_NUM_0**;内部总线占 I2C_NUM_1=CONFIG_BSP_I2C_NUM,原 Unit 文档写反已修正);
+  ②`components/units/unit_8encoder` 驱动——与官方库同粒度逐值事务(跨值批量拼读未验证不用),
+  Increment 读后硬件自清零=天然"本帧转动量",init 可重复调用(支持热插拔重试);
+  ③`tools/new_app.sh` 脚手架的 EXTRA_COMPONENT_DIRS 增加 `components/units`。
+- 🔴 **PORT.A 5V = M-Bus 5V(EXTEN)**:电池供电时 EXTEN 没开 8Encoder 就没电,插 USB 时
+  VBUS 直通会掩盖("插电脑能玩、拔线失灵")。与灯带同坑;`core2_board_init(enable_leds)` 已代开。
+- **省电三个新知识点**(桌面玩法特有):①机身不动≠没人玩,**旋钮活动必须 `core2_sleep_kick`**
+  (否则玩着玩着打盹——§20.6 教训的新变体);②打盹中旋钮活动可唤醒(NAP 时 5V 还在,继续轮询);
+  ③深度省电切 5V → **8Encoder 断电复位**(灯灭/计数清零),唤醒后 `unit_attach` 重建
+  (重写就地灯 + 重建开关基线防幻影翻转),深度态只能拿起机身唤醒(单元没电)。
+- **容错**:开机没插单元 → 无字提示卡(旋钮+插头图)+ 2s 周期重试,插上即"你好"接管;
+  游玩中连续 20 帧 I2C 失败判拔线 → 回提示卡模式。
+- 🔴 **"8Encoder 无响应"排查(2026-07-03 首刷踩中,两种症状签名)**:
+  ①**全地址 probe timeout("probe device timeout...pull-ups")= 总线被拉死**(SDA/SCL 低)
+  ——典型是**单元没吃到 5V**:没电的 STM32 单元,板载上拉挂在死 3V3 轨上变"下拉"把线拽低;
+  查 5V(底座灯带同一路,亮=5V 有电)/换 Grove 线/插紧。②**快速 NACK
+  (`ESP_ERR_INVALID_RESPONSE`,i2c_master.c:722)= 总线空但 0x41 没人应答**——插错口
+  (红色 PORT.A 在 **Core2 机身侧面**,Bottom2 黑口 PORT.B/蓝口 PORT.C 不是 I2C)或
+  地址被 0xF0 改过。伴随的 `GPIO 32/33 is not usable` + `I2C software timeout` 连环告警
+  **不是引脚冲突**:经典 ESP32 无硬件 FSM 复位,事务失败后的总线恢复(clear_bus→重配引脚)
+  对自己已占的引脚重复告警(已核对 BSP/sdkconfig 均不占 G32/33)。自诊断:
+  `core2_board_port_a_scan()` 先读线电平(拉死直接判因,跳过扫描),线平正常才扫全总线;
+  开机失败即跑、之后每 ~30s 一次。
+- 🔴 **8Encoder bootloader 陷阱(2026-07-03 在线核实内部固件源码后定案)**:单元内有
+  I2C bootloader 常驻 **0x54**,上电瞬间 I2C 两线双低 → 困在引导态不进应用(0x41);
+  再被主机 clear-bus 脉冲打搅可从机卡死**把总线双低拽死**(实机症状:全地址 probe
+  timeout、SDA=0 SCL=0;同口同线换超声波正常)。且 **EXTEN 掉电不清零** → 主机重启不
+  给单元断电,卡死跨重启存活。修复:①`core2_board_init` 开 5V 前预上拉 G32/33;
+  ②`core2_board_port_a_recover()` 切 5V 断电重启单元(自愈)——🔴 v2 修正:**断电窗口内
+  必须 `i2c_master_bus_reset()` 释放主机侧 FSM 拽住的两线**,否则单元复电又见双低、
+  再困 0x54(实测复电后快速 NACK 现形);③扫描认得 0x54 并提示,恢复失败后再扫一次。顺带修正 Unit 文档:改地址寄存器是 **0xFF 非 0xF0**、按键**按下=0**(官方
+  例程+固件源码双核实)、上电 LED 默认全灭、补 0x58~0x62 寄存器。
+- **待实机标定(tuning.h,一行改一个)**:旋转方向 `ENC_DIR`、一格计数数
+  `ENC_COUNTS_PER_LEVEL`、就地灯亮度 `KNOB_LED_MAX=110`(按键极性已核实无需标定)。
+- launcher 加 busy_knobs 专属图标分支(三旋钮+音柱,**要重刷 launcher 才显示**;不刷也能玩,
+  显示通用笑脸)。烧录:`tools/flash_one.sh busy_knobs`(= esptool write-flash 0x390000)。
+- 🔴 **排障终局(2026-07-05 三审定谳:单元无罪,是本仓库驱动的读法错了)**:真凶 =
+  `unit_8encoder` 驱动用 `i2c_master_transmit_receive`(**repeated-start 组合读**),
+  而 8Encoder 内部固件只在收到 **STOP** 时才解析寄存器号、准备回读数据——
+  repeated-start 读让从机拿着 `tx_len=0` 进发送态 → 无限拉伸 SCL 钳死总线、断电才
+  恢复。**修复 = `reg_read` 拆成"写寄存器号+STOP,再单独读"两笔事务**(一行级改动),
+  2026-07-05 实机验证即插即用(`8Encoder 就绪 @0x41,FW v1`)。定谳对照 = 用户给
+  Core2 刷 UIFlow2(官方库=写完 STOP 再读)同机同口正常游玩;S3 `i2cget` 挂死只因
+  它同用 repeated-start,不是单元坏。此前两轮误判(DOA 换货/应用固件死机)全部作废,
+  **换货无必要**;读协议红线见 `docs/units/Unit_8Encoder.md` §5.1.1,这类 MCU 固件
+  从机的通用读写规则见 `docs/units/_MCU_Firmware_I2C_Units.md`。
+- **当前开发状态(2026-07-05,阻塞解除)**:
+  ①驱动修复(repeated-start → 两笔事务)后,因 UIFlow 实验覆盖过整片 flash,已做
+  **全量恢复烧录**(bootloader+分区表+otadata+launcher+tilt_maze+busy_knobs,均
+  Hash verified),busy_knobs 开机日志确认 **8Encoder 已接管**、用户实测旋钮正常;
+  ②代码**全部未提交**(工作树:改 core2_board/launcher/tools/docs/CLAUDE.md + 本次
+  unit_8encoder 修复,新增 apps/busy_knobs + components/units;按项目惯例等验收后
+  一并提交);③换货已无必要(单元本就无罪,原单元即当前在用);④剩余待办:实机标定
+  `ENC_DIR`/`ENC_COUNTS_PER_LEVEL`/`KNOB_LED_MAX`(tuning.h),验收"转/按/拨即时
+  反馈、全满庆祝、打盹-旋钮唤醒、深度省电-拿起唤醒-灯重建、拔线提示卡、电源键回
+  launcher",通过后提交(§20.14 全部内容 + 调参定案);⑤仓库根的 4 份原理图 PDF、
+  debug2.txt、temp-project.m5f2 为排查期资料,可归档 docs/ 或删除。

@@ -94,6 +94,25 @@ static void make_maze_icon(lv_obj_t *btn)
     lv_obj_align(home, LV_ALIGN_TOP_RIGHT, -4, 2);
 }
 
+// ── 图标:旋钮忙碌台(白底面板 + 三颗彩色旋钮 + 音柱)─────────────────
+static void make_knobs_icon(lv_obj_t *btn)
+{
+    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
+    const uint32_t kc[3] = { 0xFF9E80, 0xFFC75F, 0x4FB0D8 };  // 旋钮 ×3(游戏音柱同色系)
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *knob = plain(panel, 10, 10, kc[i], LV_RADIUS_CIRCLE);
+        lv_obj_set_pos(knob, 4 + i * 13, 5);
+        lv_obj_t *dot = plain(knob, 3, 3, 0x3A3A38, LV_RADIUS_CIRCLE);
+        lv_obj_align(dot, LV_ALIGN_TOP_MID, 0, 1);
+    }
+    const int bar_h[3] = { 10, 16, 7 };                        // 高低错落的小音柱
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *bar = plain(panel, 8, bar_h[i], 0xA7C957, 3);
+        lv_obj_set_pos(bar, 6 + i * 12, 38 - bar_h[i]);
+    }
+}
+
 // ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
 static void make_generic_icon(lv_obj_t *btn)
 {
@@ -137,8 +156,9 @@ static void make_slot(lv_obj_t *scr, int idx, int x, int y)
     if (present) {
         lv_obj_set_style_bg_color(btn, lv_color_hex(SLOT_COLORS[idx]), 0);
         lv_obj_add_event_cb(btn, on_slot_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
-        if (strcmp(name, "tilt_maze") == 0) make_maze_icon(btn);
-        else                                make_generic_icon(btn);
+        if      (strcmp(name, "tilt_maze") == 0)  make_maze_icon(btn);
+        else if (strcmp(name, "busy_knobs") == 0) make_knobs_icon(btn);
+        else                                      make_generic_icon(btn);
         // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
         lv_obj_t *lbl = lv_label_create(btn);
         lv_label_set_text(lbl, name);

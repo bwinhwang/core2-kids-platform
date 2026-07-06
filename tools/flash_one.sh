@@ -12,6 +12,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # 槽位分配(加新游戏在此登记 + 更新 flash_map.md)
 declare -A SLOT=(
     [tilt_maze]=0x190000
+    [busy_knobs]=0x390000
 )
 
 if [[ "$APP" == "launcher" ]]; then
