@@ -113,6 +113,25 @@ static void make_knobs_icon(lv_obj_t *btn)
     }
 }
 
+// ── 图标:喂怪兽(薄荷圆脸 + 大张嘴 + 头顶饼干)──────────────────────
+static void make_monster_icon(lv_obj_t *btn)
+{
+    lv_obj_t *cookie = plain(btn, 12, 12, 0xE0B87A, LV_RADIUS_CIRCLE);  // 头顶饼干
+    lv_obj_align(cookie, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_t *face = plain(btn, 42, 42, 0x7FD0C0, LV_RADIUS_CIRCLE);    // 薄荷怪兽脸
+    lv_obj_align(face, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_t *el = plain(face, 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
+    lv_obj_align(el, LV_ALIGN_TOP_MID, -9, 8);
+    lv_obj_t *er = plain(face, 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
+    lv_obj_align(er, LV_ALIGN_TOP_MID, 9, 8);
+    lv_obj_t *pl = plain(el, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
+    lv_obj_center(pl);
+    lv_obj_t *pr = plain(er, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
+    lv_obj_center(pr);
+    lv_obj_t *mouth = plain(face, 20, 14, 0x7A3B34, 6);                 // 张开的大嘴
+    lv_obj_align(mouth, LV_ALIGN_TOP_MID, 0, 20);
+}
+
 // ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
 static void make_generic_icon(lv_obj_t *btn)
 {
@@ -156,9 +175,10 @@ static void make_slot(lv_obj_t *scr, int idx, int x, int y)
     if (present) {
         lv_obj_set_style_bg_color(btn, lv_color_hex(SLOT_COLORS[idx]), 0);
         lv_obj_add_event_cb(btn, on_slot_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
-        if      (strcmp(name, "tilt_maze") == 0)  make_maze_icon(btn);
-        else if (strcmp(name, "busy_knobs") == 0) make_knobs_icon(btn);
-        else                                      make_generic_icon(btn);
+        if      (strcmp(name, "tilt_maze") == 0)    make_maze_icon(btn);
+        else if (strcmp(name, "busy_knobs") == 0)   make_knobs_icon(btn);
+        else if (strcmp(name, "feed_monster") == 0) make_monster_icon(btn);
+        else                                        make_generic_icon(btn);
         // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
         lv_obj_t *lbl = lv_label_create(btn);
         lv_label_set_text(lbl, name);
