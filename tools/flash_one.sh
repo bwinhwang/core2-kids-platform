@@ -14,6 +14,7 @@ declare -A SLOT=(
     [tilt_maze]=0x190000
     [busy_knobs]=0x390000
     [feed_monster]=0x790000
+    [chain_lab]=0x990000
 )
 
 if [[ "$APP" == "launcher" ]]; then

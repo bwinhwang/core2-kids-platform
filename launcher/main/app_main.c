@@ -132,6 +132,21 @@ static void make_monster_icon(lv_obj_t *btn)
     lv_obj_align(mouth, LV_ALIGN_TOP_MID, 0, 20);
 }
 
+// ── 图标:Chain 验证台(白底面板:左旋钮 + 右摇杆方框)────────────────
+static void make_chain_icon(lv_obj_t *btn)
+{
+    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t *knob = plain(panel, 16, 16, 0xFB8B24, LV_RADIUS_CIRCLE);   // 编码器旋钮
+    lv_obj_align(knob, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_t *kd = plain(knob, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
+    lv_obj_align(kd, LV_ALIGN_TOP_MID, 0, 2);
+    lv_obj_t *box = plain(panel, 18, 18, 0x4FB0D8, 4);                   // 摇杆方框
+    lv_obj_align(box, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_t *stick = plain(box, 7, 7, 0xFFFFFF, LV_RADIUS_CIRCLE);      // 摇杆光点
+    lv_obj_center(stick);
+}
+
 // ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
 static void make_generic_icon(lv_obj_t *btn)
 {
@@ -178,6 +193,7 @@ static void make_slot(lv_obj_t *scr, int idx, int x, int y)
         if      (strcmp(name, "tilt_maze") == 0)    make_maze_icon(btn);
         else if (strcmp(name, "busy_knobs") == 0)   make_knobs_icon(btn);
         else if (strcmp(name, "feed_monster") == 0) make_monster_icon(btn);
+        else if (strcmp(name, "chain_lab") == 0)    make_chain_icon(btn);
         else                                        make_generic_icon(btn);
         // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
         lv_obj_t *lbl = lv_label_create(btn);

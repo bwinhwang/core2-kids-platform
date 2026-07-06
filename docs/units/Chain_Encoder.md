@@ -45,10 +45,20 @@ M5Stack **Chain 系列**旋转编码器输入节点。内置 AB 旋转编码器(
 
 ---
 
-## 4. 协议
+## 4. 协议(帧格式已从官方库核实)
 
-- 具体寄存器/帧格式见官方 **Chain Encoder 通信协议**文档(本 PDF 仅给链接,未含正文)。
-- 可读:旋转方向 / 脉冲计数 / 按键状态;可写:RGB 颜色、节点地址等(以协议文档为准)。
+> **Confirmed via github m5stack/M5Chain**(`src/ChainCommon`、`src/ChainEncoder`):
+> 官方 PDF 只给链接,帧格式实取自官方 Arduino 库源码。本平台实现见
+> `components/units/chain_bus`(传输)+ `components/units/unit_chain_encoder`(设备)。
+
+- **一帧**:`AA 55 | lenLo lenHi | id | cmd | data.. | crc | 55 AA`。`len`(小端)= `3+dataLen`;
+  `crc` = `(id+cmd+data)` 求和低 8 位;`id` = 链上位置(1 起,单节点直连=1)。应答同格式,
+  载荷 = id/cmd 之后、crc 之前的字节,多值**小端**。
+- **可读**:计数 `GET_VALUE=0x10`(int16 绝对)/ 增量 `GET_INC=0x11` / 按键 `BUTTON_GET_STATUS=0xE1`
+  (载荷[0]:1 按下)/ 设备类型 `0xFB`(Encoder=0x0001)/ 固件版本 `0xFA`。
+- **可写**:RGB `SET_RGB_VALUE=0x20`(data=[index,num,r,g,b])/ RGB 亮度 `SET_RGB_LIGHT=0x22`(0~100)/
+  AB 相位 `SET_AB_STATUS=0x15` / 节点地址等。
+- 节点主动发心跳(`0xFD`,约 1/s)/ 枚举(`0xFC`)/ 按键上报(`0xE0`);主机轮询时按 (id,cmd) 匹配、其余丢弃。
 
 ---
 
