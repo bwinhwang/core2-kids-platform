@@ -27,7 +27,7 @@
 - 板载 4.7kΩ I2C 上拉到 3V3,SDA/SCL 已是 **3.3V 逻辑**,一般无需再加上拉。
 - 接 Core2 **PORT.A**(`I2C_NUM_1`):Yellow=**G32**(SDA)、White=**G33**(SCL)。**别抄 AtomS3 的 G1/G2**。
 - PORT.A 独立总线,与内部 0x34/0x38/0x51/0x68 隔离;与 Ultrasonic(0x57)/8Encoder(0x41)/Gesture(0x73)同口不撞。
-- **驱动映射(本平台)**:组件 `components/units/unit_dlight`;接入 `unit_dlight_init(bsp_i2c_port_a(), 0x23)`。
+- **驱动映射(本平台)**:组件 `components/units/unit_dlight`;接入 `unit_dlight_init(core2_board_port_a(), 0)`(0=默认 0x23)。示例应用见 `apps/peekaboo`(躲猫猫昼夜屋)。
 
 > 物理:32 x 24 x 8 mm,4.8 g。
 

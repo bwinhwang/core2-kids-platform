@@ -11,7 +11,7 @@
 | factory | `0x10000` | launcher 选择页 | 用下方"全量刷"(还包含 bootloader/分区表/otadata) |
 | ota_0 | `0x190000` | tilt_maze 倾斜迷宫 | `python -m esptool --chip esp32 -p <PORT> write-flash 0x190000 apps/tilt_maze/build/tilt_maze.bin` |
 | ota_1 | `0x390000` | busy_knobs 旋钮忙碌台(8Encoder) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x390000 apps/busy_knobs/build/busy_knobs.bin` |
-| ota_2 | `0x590000` | (预留:躲猫猫/DLight) | 同上,偏移 `0x590000` |
+| ota_2 | `0x590000` | peekaboo 躲猫猫昼夜屋(DLight) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/peekaboo/build/peekaboo.bin` |
 | ota_3 | `0x790000` | feed_monster 喂怪兽(超声波) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/feed_monster/build/feed_monster.bin` |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
 | ota_5 | `0xB90000` | (预留) | 同上,偏移 `0xB90000` |
