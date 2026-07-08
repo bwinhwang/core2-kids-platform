@@ -15,8 +15,5 @@ void game_state_start(void);
 /** @brief 暂停/恢复游戏(菜单打开时暂停物理)。 */
 void game_state_set_paused(bool paused);
 
-/** @brief 设难度档:可玩关数(2=仅 L1~L2 简单档;4=全 4 关)。 */
-void game_state_set_level_band(int max_levels);
-
 /** @brief 设常态背光(%),并立即应用;打盹唤醒后恢复到此值。 */
 void game_state_set_play_brightness(int pct);

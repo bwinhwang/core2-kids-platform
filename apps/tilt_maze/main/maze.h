@@ -1,8 +1,8 @@
 // 迷宫数据 + 关卡库 + 碰撞 + 求解性校验 (CLAUDE.md §4, §19)
 //
 // 瓦片图(thick-wall):16 列 × 12 行,cell=20px,迷宫正好铺满 320×240(无偏移)。
-// (2026-07-02 分辨率翻倍:原 8×6/40px 塞不下岔路;前期关用 2 格宽走廊保留 40px 手感,
-//  后期关 1 格宽 + 分叉/死胡同/环路。球 r=7、到家判定 GOAL_R=13 同步缩放,见 tuning.h。)
+// (2026-07-08 取消难度渐进:16 张同难度真迷宫,全部 1 格窄走廊 + 分叉/死胡同/环路;
+//  tier/guide 字段随之删除。球 r=7、到家判定 GOAL_R=13 见 tuning.h。)
 // 瓦片:'#'=墙  '.'=路面  'S'=起点  'H'=家  '*'=星
 #pragma once
 
@@ -20,24 +20,16 @@ typedef enum {
     WORLD_CANDY,        // 糖果
 } world_t;
 
-typedef enum {
-    GUIDE_ON = 0,       // 面包屑常驻
-    GUIDE_FAINT,        // 淡
-    GUIDE_OFF,          // 无
-} guide_t;
-
 typedef struct { int col, row; } cell_t;
 
 typedef struct {
-    int          id;                 // 1~12
+    int          id;                 // 1~16
     world_t      world;
-    const char  *grid[MAZE_ROWS];    // 每行 8 字符
+    const char  *grid[MAZE_ROWS];    // 每行 16 字符
     cell_t       start;
     cell_t       home;
     cell_t       stars[2];
     int          n_stars;
-    int          tier;               // 0/1/2/3(reward)
-    guide_t      guide;
 } level_t;
 
 /** @brief 关卡总数。 */

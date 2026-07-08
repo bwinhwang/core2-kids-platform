@@ -10,19 +10,17 @@
 #include "audio_fx.h"
 #include "haptics.h"
 #include "game_state.h"
-#include "maze.h"
 
 static const char *TAG = "parent";
 
 static lv_obj_t *s_menu;          // 菜单根容器(NULL=未打开)
 static lv_obj_t *s_vib_lbl;
-static lv_obj_t *s_band_lbl;
 
 // 当前设置(每次开机默认值;持久化到 NVS 可后续加)
+// 难度档已删(2026-07-08):16 张同难度地图,无"简单档"可切。
 static int  s_bright = PLAY_BRIGHTNESS;
 static int  s_volume = 60;
 static bool s_vib    = true;
-static bool s_easy   = false;     // 难度档:false=普通(全部 8 关) true=简单(前 2 关)
 
 static void close_menu(void)
 {
@@ -52,13 +50,6 @@ static void on_vib(lv_event_t *e)
     s_vib = !s_vib;
     haptics_set_enabled(s_vib);
     lv_label_set_text(s_vib_lbl, s_vib ? "Vibration: ON" : "Vibration: OFF");
-}
-
-static void on_band(lv_event_t *e)
-{
-    s_easy = !s_easy;
-    game_state_set_level_band(s_easy ? 2 : maze_level_count());
-    lv_label_set_text(s_band_lbl, s_easy ? "Levels: 2 (Easy)" : "Levels: 8 (Normal)");
 }
 
 static void on_back(lv_event_t *e) { close_menu(); }
@@ -129,9 +120,8 @@ static void open_menu(void)
     lv_slider_set_value(vs, s_volume, LV_ANIM_OFF);
     lv_obj_add_event_cb(vs, on_volume, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // 震动 / 难度
-    make_btn(s_menu, 12, 104, 140, 34, s_vib ? "Vibration: ON" : "Vibration: OFF", on_vib, &s_vib_lbl);
-    make_btn(s_menu, 160, 104, 148, 34, s_easy ? "Levels: 2 (Easy)" : "Levels: 8 (Normal)", on_band, &s_band_lbl);
+    // 震动
+    make_btn(s_menu, 12, 104, 296, 34, s_vib ? "Vibration: ON" : "Vibration: OFF", on_vib, &s_vib_lbl);
 
     // Home=回 launcher 选择页;Back=关菜单继续玩(重新校准已随§20.9移除)
     make_btn(s_menu, 12, 148, 140, 42, LV_SYMBOL_HOME " Home", on_home, NULL);

@@ -39,7 +39,6 @@ static int    s_frame;                 // 进入当前状态后的帧数
 
 // M6 共享状态
 static volatile bool s_paused;
-static volatile int  s_max_levels  = 4;   // game_state_start 里重设为 maze_level_count()
 static volatile int  s_play_bright = PLAY_BRIGHTNESS;
 
 // 两级省电编排器(打盹→深度省电→去抖唤醒,判据/时序见 components/core2_sleep)
@@ -84,7 +83,7 @@ static void start_play(int idx)
 
     s_state = ST_PLAY;
     s_frame = 0;
-    ESP_LOGI(TAG, "PLAY: L%d (tier %d)", s_level->id, s_level->tier);
+    ESP_LOGI(TAG, "PLAY: L%d", s_level->id);
 }
 
 static void enter_win(void)
@@ -96,15 +95,15 @@ static void enter_win(void)
 }
 
 // ── 洗牌袋选关 ───────────────────────────────────────────────────────
-// 一轮内难度档里的每关恰好出现一次(顺序随机),打完一轮重洗。
+// 一轮内每关恰好出现一次(顺序随机),打完一轮重洗。
 // 独立随机(esp_random()%n)在小样本下重复感强(生日悖论),故用洗牌袋。
 #define LEVEL_BAG_MAX 16
 static int s_bag[LEVEL_BAG_MAX];
-static int s_bag_pos, s_bag_n;   // s_bag_n=0 表示袋空;难度档变化时 n 不匹配自动重洗
+static int s_bag_pos, s_bag_n;   // s_bag_n=0 表示袋空
 
 static int bag_clamp_n(void)
 {
-    int n = s_max_levels;
+    int n = maze_level_count();
     if (n < 1) n = 1;
     if (n > LEVEL_BAG_MAX) n = LEVEL_BAG_MAX;
     return n;
@@ -136,18 +135,15 @@ static int next_level_from_bag(void)
     return s_bag[s_bag_pos++];
 }
 
-// 开局关:固定 L1(最易、引导常驻),但必须计入第一轮洗牌袋——
-// 否则第一轮袋里仍含 L1,开局没几关 L1 就会再来一次(实机踩过)。
+// 开局关:16 张同难度(2026-07-08 取消难度渐进),不再固定 L1 起手,
+// 直接洗一轮新袋随机开局。
 static int first_level_from_bag(void)
 {
     int n = bag_clamp_n();
     if (n == 1) return 0;
 
     shuffle_bag(n);
-    for (int i = 0; i < n; i++) {   // 把 L1(idx 0)换到轮首
-        if (s_bag[i] == 0) { s_bag[i] = s_bag[0]; s_bag[0] = 0; break; }
-    }
-    return s_bag[s_bag_pos++];      // = 0(L1),本轮已消费
+    return s_bag[s_bag_pos++];
 }
 
 // ── 各状态每帧 ───────────────────────────────────────────────────────
@@ -268,20 +264,11 @@ void game_state_start(void)
     core2_sleep_init(&s_sleep, &scfg);
 
     s_level_idx = 0;
-    s_max_levels = maze_level_count();
     xTaskCreate(game_task, "game", 4096, NULL, 5, NULL);
 }
 
 // ── 家长菜单接口 ─────────────────────────────────────────────────────
 void game_state_set_paused(bool paused) { s_paused = paused; }
-
-void game_state_set_level_band(int max_levels)
-{
-    if (max_levels < 1) max_levels = 1;
-    if (max_levels > maze_level_count()) max_levels = maze_level_count();
-    s_max_levels = max_levels;
-    ESP_LOGI(TAG, "难度档:可玩 %d 关", s_max_levels);
-}
 
 void game_state_set_play_brightness(int pct)
 {

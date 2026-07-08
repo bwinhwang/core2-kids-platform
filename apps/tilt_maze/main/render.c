@@ -30,6 +30,80 @@ static palette_t world_palette(world_t w)
     return (palette_t){ 0xD7ECBF, 0x7FB069, 0xC68A52 };
 }
 
+// ── 收集星精灵(五角星双色,SPEC §18.3)────────────────────────────────
+// LVGL 无五角形基元,又不想打包素材:init 时程序化烘一张 20×20 ARGB8888 精灵
+// (点内测试 + 4×4 超采样抗锯齿,一次性 CPU 开销),之后当普通图片贴,
+// 守 §6.4「烘好再贴、不每帧算 alpha」。字节序 B,G,R,A(lv_color32_t)。
+#define STAR_IMG_W   20
+#define STAR_IMG_H   20
+static uint8_t        s_star_px[STAR_IMG_W * STAR_IMG_H * 4];
+static lv_image_dsc_t s_star_dsc;
+
+// 点是否在五角星内(10 顶点偶交叉法;尖朝上)
+static bool in_star(float x, float y, const float *vx, const float *vy)
+{
+    bool in = false;
+    for (int i = 0, j = 9; i < 10; j = i++) {
+        if ((vy[i] > y) != (vy[j] > y) &&
+            x < (vx[j] - vx[i]) * (y - vy[i]) / (vy[j] - vy[i]) + vx[i]) {
+            in = !in;
+        }
+    }
+    return in;
+}
+
+static void star_vertices(float cx, float cy, float r_out, float r_in, float *vx, float *vy)
+{
+    for (int i = 0; i < 10; i++) {
+        float ang = -(float)M_PI / 2 + i * (float)M_PI / 5;
+        float r = (i % 2 == 0) ? r_out : r_in;
+        vx[i] = cx + r * cosf(ang);
+        vy[i] = cy + r * sinf(ang);
+    }
+}
+
+static void bake_star_sprite(void)
+{
+    const float cx = STAR_IMG_W / 2.0f;
+    const float cy = STAR_IMG_H / 2.0f + 0.8f;   // 尖朝上重心偏上,下移做光学居中
+    const float R = 9.2f;              // 外接半径:尖几乎顶满 20px 格
+    const float r = R * 0.47f;         // 凹点半径偏大 → 胖乎乎的幼儿审美
+    const uint8_t body[3] = { 0x2E, 0xCB, 0xFF };   // B,G,R:主体金
+    const uint8_t core[3] = { 0xA0, 0xF0, 0xFF };   // B,G,R:中心小星高光(双色)
+    float bx[10], by[10], kx[10], ky[10];
+    star_vertices(cx, cy, R, r, bx, by);
+    star_vertices(cx, cy + 0.5f, R * 0.52f, r * 0.52f, kx, ky);  // 高光星略小、微下沉
+
+    for (int y = 0; y < STAR_IMG_H; y++) {
+        for (int x = 0; x < STAR_IMG_W; x++) {
+            int hit = 0, hit_core = 0;
+            for (int sy = 0; sy < 4; sy++) {
+                for (int sx = 0; sx < 4; sx++) {
+                    float px = x + (sx + 0.5f) / 4, py = y + (sy + 0.5f) / 4;
+                    if (in_star(px, py, bx, by)) {
+                        hit++;
+                        if (in_star(px, py, kx, ky)) hit_core++;
+                    }
+                }
+            }
+            uint8_t *o = &s_star_px[(y * STAR_IMG_W + x) * 4];
+            float t = hit ? (float)hit_core / hit : 0;   // 主体→高光过渡
+            for (int c = 0; c < 3; c++) {
+                o[c] = (uint8_t)(body[c] + t * ((float)core[c] - body[c]));
+            }
+            o[3] = (uint8_t)(hit * 255 / 16);
+        }
+    }
+
+    s_star_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+    s_star_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+    s_star_dsc.header.w      = STAR_IMG_W;
+    s_star_dsc.header.h      = STAR_IMG_H;
+    s_star_dsc.header.stride = STAR_IMG_W * 4;
+    s_star_dsc.data_size     = sizeof(s_star_px);
+    s_star_dsc.data          = s_star_px;
+}
+
 static lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius)
 {
     lv_obj_t *o = lv_obj_create(parent);
@@ -55,6 +129,8 @@ static void cb_delete(lv_anim_t *a)    { lv_obj_delete((lv_obj_t *)a->var); }
 
 void render_init(void)
 {
+    bake_star_sprite();   // 纯 CPU,一次性,无需持锁
+
     bsp_display_lock(0);
 
     s_scr = lv_screen_active();
@@ -115,13 +191,14 @@ void render_load_level(const level_t *lvl)
     lv_obj_set_style_transform_pivot_y(s_home, (int)GOAL_R, 0);
     render_home_excited(false);
 
-    // 星(收集物):统一金色五角(占位圆),记下对象供拾取动画
+    // 星(收集物):烘焙五角星双色精灵,所有世界统一;记下对象供拾取动画
     for (int i = 0; i < lvl->n_stars && i < 2; i++) {
         vec2_t st = maze_cell_center(lvl->stars[i]);
-        s_stars[i] = make_box(s_maze, (int)(st.x - STAR_R), (int)(st.y - STAR_R),
-                              (int)(STAR_R * 2), (int)(STAR_R * 2), 0xFFD23F, 999);
-        lv_obj_set_style_transform_pivot_x(s_stars[i], (int)STAR_R, 0);
-        lv_obj_set_style_transform_pivot_y(s_stars[i], (int)STAR_R, 0);
+        s_stars[i] = lv_image_create(s_maze);
+        lv_image_set_src(s_stars[i], &s_star_dsc);
+        lv_obj_set_pos(s_stars[i], (int)(st.x - STAR_IMG_W / 2), (int)(st.y - STAR_IMG_H / 2));
+        lv_obj_set_style_transform_pivot_x(s_stars[i], STAR_IMG_W / 2, 0);
+        lv_obj_set_style_transform_pivot_y(s_stars[i], STAR_IMG_H / 2, 0);
     }
 
     vec2_t s = maze_cell_center(lvl->start);
