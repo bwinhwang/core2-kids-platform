@@ -12,6 +12,10 @@ static const char *TAG = "ledstrip_fx";
 #define BUMP_FRAMES     6       // ~150ms
 #define COLLECT_FRAMES  10      // ~250ms
 #define WIN_FRAMES      64      // ~1.6s
+#define SWEEP_FRAMES    18      // ~450ms(busy_knobs 图案彩蛋)
+#define GATHER_FRAMES   20      // ~500ms
+#define SPREAD_FRAMES   20      // ~500ms
+#define FLASH_FRAMES    10      // ~250ms 柔亮起落,非频闪
 
 static led_strip_handle_t s_strip;
 static uint8_t s_max_bright = 48;
@@ -99,6 +103,59 @@ static bool render_fx(int frame)
                 put(i, r, g, b);
             }
             return frame < WIN_FRAMES;
+        }
+        case LED_FX_SWEEP_L2R: {
+            // COLLECT 同款遍历序(索引 0..9)正向单程扫过(不绕圈)
+            int head = frame * LEDSTRIP_COUNT / SWEEP_FRAMES;
+            fill(0x20, 0x18, 0x00);
+            if (head < LEDSTRIP_COUNT) put(head, 0xFF, 0xD2, 0x3F);
+            if (head - 1 >= 0 && head - 1 < LEDSTRIP_COUNT) put(head - 1, 0x80, 0x68, 0x10);
+            return frame < SWEEP_FRAMES;
+        }
+        case LED_FX_SWEEP_R2L: {
+            int head = LEDSTRIP_COUNT - 1 - frame * LEDSTRIP_COUNT / SWEEP_FRAMES;
+            fill(0x20, 0x18, 0x00);
+            if (head >= 0 && head < LEDSTRIP_COUNT) put(head, 0xFF, 0xD2, 0x3F);
+            if (head + 1 >= 0 && head + 1 < LEDSTRIP_COUNT) put(head + 1, 0x80, 0x68, 0x10);
+            return frame < SWEEP_FRAMES;
+        }
+        case LED_FX_GATHER: {
+            // 两端(索引 0/9)→ 中间(4/5)对称聚拢
+            int steps = LEDSTRIP_COUNT / 2;
+            int step  = frame * steps / GATHER_FRAMES;
+            fill(0x20, 0x18, 0x00);
+            if (step < steps) {
+                put(step, 0xFF, 0xD2, 0x3F);
+                put(LEDSTRIP_COUNT - 1 - step, 0xFF, 0xD2, 0x3F);
+            }
+            if (step - 1 >= 0) {
+                put(step - 1, 0x80, 0x68, 0x10);
+                put(LEDSTRIP_COUNT - step, 0x80, 0x68, 0x10);
+            }
+            return frame < GATHER_FRAMES;
+        }
+        case LED_FX_SPREAD: {
+            // 中间(4/5)→ 两端(0/9)对称散开
+            int steps = LEDSTRIP_COUNT / 2;
+            int step  = frame * steps / SPREAD_FRAMES;
+            int a = steps - 1 - step;
+            fill(0x20, 0x18, 0x00);
+            if (a >= 0 && a < steps) {
+                put(a, 0xFF, 0xD2, 0x3F);
+                put(LEDSTRIP_COUNT - 1 - a, 0xFF, 0xD2, 0x3F);
+            }
+            int b = a + 1;
+            if (b >= 0 && b < steps) {
+                put(b, 0x80, 0x68, 0x10);
+                put(LEDSTRIP_COUNT - 1 - b, 0x80, 0x68, 0x10);
+            }
+            return frame < SPREAD_FRAMES;
+        }
+        case LED_FX_FLASH: {
+            // 整条暖白柔亮一下:三角包络起落,单次不闪烁(光敏安全)
+            float k = 1.0f - fabsf((float)frame / FLASH_FRAMES * 2.0f - 1.0f);
+            fill((uint8_t)(0xFF * k), (uint8_t)(0xE8 * k), (uint8_t)(0xC0 * k));
+            return frame < FLASH_FRAMES;
         }
         default:
             return false;

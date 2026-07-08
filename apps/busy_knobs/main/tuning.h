@@ -45,3 +45,44 @@
 #define NAP_BRIGHTNESS      10
 #define NAP_AFTER_MS        20000  // 桌面玩法,静止判定比倾斜迷宫(12s)放宽些
 #define DEEP_AFTER_MS       60000  // 深度省电会切 M-Bus 5V → 8Encoder 断电,拿起机身才醒
+
+// ══ 趣味增量第二批(FUN2_SPEC.md)══════════════════════════════════════
+
+// ── 小脸活化 ──────────────────────────────────────────────────────────
+#define BLINK_MIN_S          2      // 眨眼间隔下限(s)
+#define BLINK_MAX_S          6
+#define BLINK_FRAMES         3      // 合眼持续帧数(~100ms)
+#define BLINK_DOUBLE_PCT     20     // 双眨概率(%)
+#define GAZE_HOLD_MS         1000   // 看向保持时长
+#define GAZE_DX              2      // 瞳孔偏移(px)
+#define MOUTH_SMILE_LV       9      // ≥此档 = 微笑
+#define MOUTH_OPEN_LV        18     // ≥此档 = 张嘴笑
+
+// ── 小鸟 ─────────────────────────────────────────────────────────────
+#define BIRD_VISIT_MIN_S     20     // 自发拜访间隔(s,随机区间)
+#define BIRD_VISIT_MAX_S     45
+#define BIRD_PERCH_MIN_S     8      // 栖息时长(s,随机区间)
+#define BIRD_PERCH_MAX_S     15
+#define BIRD_FLY_MS          700    // 飞入/飞出时长(图案召唤时飞入用 500)
+#define BIRD_HOP_MS          110    // RIDE 每跳时长
+#define BIRD_NOTE_MS         45     // 落地音时长
+#define BIRD_NOTE_AMP        45     // 落地音响度(白天)
+#define BIRD_NOTE_AMP_NIGHT  32
+
+// ── 图案差异化 ────────────────────────────────────────────────────────
+#define WAVE_STEP_MS         45     // 波浪错峰步进(原 pattern_reward 硬编码 45 移进来)
+#define EQUAL_NOTE_MS        280    // 一条线齐唱长音
+#define EQUAL_NOTE_AMP       60
+#define ARP_AMP_NIGHT        40
+
+// ── 夜晚 ─────────────────────────────────────────────────────────────
+#define TICK_MS_NIGHT        60
+#define TICK_AMP_NIGHT       30
+#define SING_AMP_NIGHT       55
+#define TWINKLE_MIN_F        24     // 星星切换间隔(帧,0.8~2s)
+#define TWINKLE_MAX_F        60
+
+// ── 和弦 ─────────────────────────────────────────────────────────────
+#define CHORD_WINDOW_FRAMES  2      // 齐按收集窗口(帧;2 帧≈66ms,仍<100ms 红线)
+#define CHORD_NOTE_MS        35
+#define CHORD_NOTE_AMP       60

@@ -27,6 +27,12 @@ typedef enum {
     LED_FX_BUMP = 0,        // 撞墙:一下微闪
     LED_FX_COLLECT,         // 收集星:一圈高亮扫过
     LED_FX_WIN,             // 过关:彩虹转圈
+    // ── 以下为 busy_knobs 图案彩蛋追加(尾部追加,不改动既有值序)──────────
+    LED_FX_SWEEP_L2R,       // 定向扫:COLLECT 同款遍历序正向
+    LED_FX_SWEEP_R2L,       // 定向扫:反向
+    LED_FX_GATHER,          // 两端 → 中间聚拢
+    LED_FX_SPREAD,          // 中间 → 两端散开
+    LED_FX_FLASH,           // 整条暖白柔亮一下(≈250ms 起落,无频闪感)
 } led_fx_t;
 
 /** @brief 初始化灯带 + 起动画任务。 */
