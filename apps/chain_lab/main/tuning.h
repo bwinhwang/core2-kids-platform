@@ -1,6 +1,10 @@
 // chain_lab 可调参数(一行一个,实机标定改这里)
 #pragma once
 
+// ── 显示模式(SPEC.md §7 方案B:编译期开关)────────────────────────────────
+// 0 = 抓娃娃机(默认,给孩子玩);1 = 隐藏诊断台(现状表盘/光点 UI,排障用,需改此宏重编重刷)。
+#define CHAIN_LAB_DIAG_MODE  0
+
 // 轮询节奏
 #define POLL_HZ            20
 #define POLL_PERIOD_MS     (1000 / POLL_HZ)     // 50ms
@@ -31,3 +35,17 @@
 
 // 节点板载 RGB 亮度档 0~100(护眼压低)
 #define NODE_RGB_BRIGHTNESS 40
+
+// ── 抓娃娃机机制(SPEC.md §9,默认值待实机标定)───────────────────────────
+#define CRANE_X_RANGE_PX     220    // 吊臂可移动横向范围(screen-space)
+#define DESCEND_PER_TICK       6    // 编码器每格增量对应下降像素(顺时针+,逆时针-)
+#define DESCEND_MAX_PX       140    // 最大下降深度(爪子触底)
+#define DESCEND_SNAP_TOL      10    // 接近最大深度时"转够了自动到底"的容忍区间
+#define GRAB_ALIGN_TOL_PX     24    // 抓取横向对齐容差(战利品中心 ± 此值即可抓中)
+#define GRAB_MS               500   // 抓取(爪子闭合)动画时长
+#define ASCEND_MS             750   // 上升动画时长
+#define DEPOSIT_MS            500   // 战利品落架 / 空爪弹回动画时长
+
+// ── 展示架 / 派对 ────────────────────────────────────────────────────
+#define PRIZE_TYPES             5   // 当前批次战利品种类数
+#define PARTY_HOLD_MS         3500
