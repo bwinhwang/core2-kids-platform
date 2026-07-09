@@ -40,6 +40,7 @@
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
+| **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
@@ -366,6 +367,7 @@ components/
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
+| **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
