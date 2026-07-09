@@ -39,7 +39,7 @@
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
-| **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
+| **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | 🔄 v2 重写完工(诊断台折叠为隐藏模式)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
 | **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 
@@ -366,7 +366,7 @@ components/
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
-| **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
+| **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | 🔄 v2 重写完工(诊断台折叠为隐藏模式)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
 | **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 

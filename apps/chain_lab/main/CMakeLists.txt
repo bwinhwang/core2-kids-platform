@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "app_main.c"
         "chain_lab.c"
+        "crane_game.c"
     INCLUDE_DIRS
         "."
     REQUIRES

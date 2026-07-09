@@ -33,9 +33,14 @@
 #include "unit_chain_encoder.h"
 #include "unit_chain_joystick.h"
 
+#include "crane_game.h"
+
 #include "tuning.h"
 
 static const char *TAG = "chain_lab";
+
+#if CHAIN_LAB_DIAG_MODE
+// ── 隐藏诊断台 UI(SPEC.md §7 方案B:仅 CHAIN_LAB_DIAG_MODE=1 编译期参与)──────────
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -62,6 +67,7 @@ static const char *TAG = "chain_lab";
 #define JOY_BOX     116
 #define JOY_DOT_R   9
 #define JOY_INNER   (JOY_BOX / 2 - JOY_DOT_R - 3)
+#endif // CHAIN_LAB_DIAG_MODE
 
 // ── 状态 ─────────────────────────────────────────────────────────────
 static uint8_t s_enc_id;             // 0 = 未绑定;否则链上位置
@@ -82,7 +88,8 @@ static int     s_rescan_frames;
 static core2_sleep_t       s_sleep;
 static core2_sleep_stage_t s_prev_stage = CORE2_SLEEP_AWAKE;
 
-// ── LVGL 对象 ────────────────────────────────────────────────────────
+#if CHAIN_LAB_DIAG_MODE
+// ── LVGL 对象(诊断台)────────────────────────────────────────────────
 static lv_obj_t *s_enc_ring, *s_enc_knob, *s_enc_val;
 static lv_obj_t *s_joy_boxo, *s_joy_dot, *s_joy_raw;
 static lv_obj_t *s_status_lbl, *s_hint_card;
@@ -121,6 +128,7 @@ static lv_obj_t *label(lv_obj_t *parent, const char *txt, uint32_t color)
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     return l;
 }
+#endif // CHAIN_LAB_DIAG_MODE
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -138,7 +146,8 @@ static void hue2rgb(int h, uint8_t *r, uint8_t *g, uint8_t *b)
     else              { *r = 255; *g = 0;   *b = x;   }
 }
 
-// ── UI 搭建 ──────────────────────────────────────────────────────────
+#if CHAIN_LAB_DIAG_MODE
+// ── UI 搭建(诊断台)──────────────────────────────────────────────────
 static void ui_create(void)
 {
     bsp_display_lock(0);
@@ -234,6 +243,7 @@ static void ui_status(void)
     }
     bsp_display_unlock();
 }
+#endif // CHAIN_LAB_DIAG_MODE
 
 // ── 节点 RGB(只在变化时写,省事务)────────────────────────────────────
 static void node_rgb(uint8_t id, uint8_t r, uint8_t g, uint8_t b, uint8_t last[3])
@@ -306,6 +316,7 @@ static bool poll_enc(bool draw)
     bool activity   = (v != s_enc_value) || btn;      // 转动或按住 = 有人玩
     s_enc_value = v; s_enc_btn = btn;
 
+#if CHAIN_LAB_DIAG_MODE
     if (draw) {
         ui_enc(true);
         if (btn) node_rgb(s_enc_id, 255, 255, 255, s_enc_led);   // 按下 = 白
@@ -315,6 +326,9 @@ static bool poll_enc(bool draw)
         }
         if (press_edge) { audio_fx_play(SND_COLLECT); haptics_play(HAPTIC_COLLECT); }
     }
+#else
+    (void)draw; (void)press_edge;
+#endif
     return activity;
 }
 
@@ -350,6 +364,7 @@ static bool poll_joy(bool draw)
     s_joy_nx = nx; s_joy_ny = ny;
     s_joy_btn = btn;
 
+#if CHAIN_LAB_DIAG_MODE
     if (draw) {
         bsp_display_lock(0);
         lv_label_set_text_fmt(s_joy_raw, "X:%4u Y:%4u", x, y);
@@ -363,6 +378,9 @@ static bool poll_joy(bool draw)
         }
         if (press_edge) { audio_fx_play(SND_COLLECT); haptics_play(HAPTIC_COLLECT); }
     }
+#else
+    (void)draw; (void)press_edge;
+#endif
     return activity;
 }
 
@@ -382,11 +400,17 @@ static void game_task(void *arg)
         if (s_prev_stage == CORE2_SLEEP_DEEP && stage != CORE2_SLEEP_DEEP) {
             s_enc_id = 0; s_joy_id = 0;
             scan_bus(false);
+#if CHAIN_LAB_DIAG_MODE
             ui_status();
+#else
+            crane_game_sync_attach();
+            crane_game_reset_position();   // 爪子/吊臂复位安全位置(SPEC §6)
+#endif
         }
         s_prev_stage = stage;
 
         if (stage != CORE2_SLEEP_DEEP) {
+#if CHAIN_LAB_DIAG_MODE
             bool draw = (stage == CORE2_SLEEP_AWAKE);
             bool prev_bound = s_enc_id || s_joy_id;
 
@@ -407,6 +431,29 @@ static void game_task(void *arg)
                 core2_sleep_kick(&s_sleep);
                 if (stage != CORE2_SLEEP_AWAKE) core2_sleep_wake(&s_sleep);
             }
+#else
+            bool prev_bound = s_enc_id || s_joy_id;
+
+            if (!s_enc_id || !s_joy_id) {   // 有空位就低频重扫(认新插入 / 恢复失联)
+                if (++s_rescan_frames >= ATTACH_RETRY_MS / POLL_PERIOD_MS) {
+                    s_rescan_frames = 0;
+                    scan_bus(true);
+                    crane_game_sync_attach();
+                }
+            }
+
+            bool act = poll_enc(false);   // 只读值/测活动,不落诊断台画面(游戏层自己画)
+            act |= poll_joy(false);
+
+            if ((s_enc_id || s_joy_id) != prev_bound) crane_game_sync_attach();
+
+            if (act) {
+                core2_sleep_kick(&s_sleep);
+                if (stage != CORE2_SLEEP_AWAKE) core2_sleep_wake(&s_sleep);
+            }
+
+            if (stage == CORE2_SLEEP_AWAKE) crane_game_tick();
+#endif
         }
         vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
     }
@@ -414,7 +461,11 @@ static void game_task(void *arg)
 
 void chain_lab_start(void)
 {
+#if CHAIN_LAB_DIAG_MODE
     ui_create();
+#else
+    crane_game_create();
+#endif
 
     core2_sleep_cfg_t scfg = CORE2_SLEEP_CFG_DEFAULT;
     scfg.nap_after_ms     = NAP_AFTER_MS;
@@ -432,7 +483,12 @@ void chain_lab_start(void)
     } else {
         scan_bus(false);
     }
+
+#if CHAIN_LAB_DIAG_MODE
     ui_status();
+#else
+    crane_game_sync_attach();
+#endif
 
     if (s_enc_id || s_joy_id) {
         audio_fx_play(SND_HELLO);
@@ -441,5 +497,29 @@ void chain_lab_start(void)
         audio_fx_play(SND_BUMP_MED);   // 没认到:温柔一声"咦?",屏上出提示卡
     }
 
-    xTaskCreate(game_task, "chain_lab", 4096, NULL, 5, NULL);
+    xTaskCreate(game_task, "chain_lab", 5120, NULL, 5, NULL);
 }
+
+// ── 游戏层输入 getter(SPEC §2:应用侧自算帧间 delta/边沿,这里只暴露读数)────────
+bool    chain_lab_enc_attached(void) { return s_enc_id != 0; }
+int16_t chain_lab_enc_value(void)    { return s_enc_value; }
+bool    chain_lab_enc_button(void)   { return s_enc_btn; }
+
+bool    chain_lab_joy_attached(void) { return s_joy_id != 0; }
+float   chain_lab_joy_x(void)        { return s_joy_nx; }
+float   chain_lab_joy_y(void)        { return s_joy_ny; }
+bool    chain_lab_joy_button(void)   { return s_joy_btn; }
+
+void chain_lab_enc_rgb(uint8_t r, uint8_t g, uint8_t b)
+{
+    if (!s_enc_id) return;
+    node_rgb(s_enc_id, r, g, b, s_enc_led);
+}
+
+void chain_lab_joy_rgb(uint8_t r, uint8_t g, uint8_t b)
+{
+    if (!s_joy_id) return;
+    node_rgb(s_joy_id, r, g, b, s_joy_led);
+}
+
+void chain_lab_hue2rgb(int h, uint8_t *r, uint8_t *g, uint8_t *b) { hue2rgb(h, r, g, b); }
