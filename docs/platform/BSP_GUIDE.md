@@ -44,7 +44,8 @@ void app_main(void)
     core2_board_cfg_t cfg = CORE2_BOARD_CFG_KIDS_DEFAULT;  // 全开;不用的外设置 false
     ESP_ERROR_CHECK(core2_board_init(&cfg));
 
-    app_slot_enable_button_exit();  // 电源键短按 = 回 launcher(平台统一约定)
+    // 回 launcher 靠家长菜单 Home(电源键触发的软件退出 2026-07-09 已取消,
+    // 电源键唯一剩下的行为是 AXP192 硬件本身按住 ≥4s 强制断电)。
 
     // ↓ 从这里写你的应用(屏用 LVGL,记得 bsp_display_lock/unlock)
     audio_fx_play(SND_HELLO);

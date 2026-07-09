@@ -7,11 +7,6 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-#include "core2_power.h"
-#include "haptics.h"
 
 static const char *TAG = "app_slot";
 
@@ -63,41 +58,4 @@ bool app_slot_present(int idx, char *name, size_t name_len)
         strlcpy(name, desc.project_name, name_len);
     }
     return true;
-}
-
-// ── 电源键退出(游戏侧)────────────────────────────────────────────────
-// 低频轮询 AXP192 PEK 按压标志(短按/长按都算,阈值坑见 core2_power.h);
-// 命中即轻震确认 → 设回 factory → 重启。
-// 独立小任务,不挂在 game_task 上(轮询走 I2C,别占 60Hz 循环)。
-// 轮询要够快:BSP 配置下按住 ~1s 置"长按"标志、≥4s AXP 硬断电,须赶在断电前消费。
-
-#define PEK_POLL_MS    150
-#define PEK_TASK_STACK 3072
-
-static void button_exit_task(void *arg)
-{
-    (void)arg;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(PEK_POLL_MS));
-        if (core2_power_pek_pressed()) {
-            ESP_LOGI(TAG, "电源键按下 → 回 launcher");
-            haptics_play(HAPTIC_WAKE);            // 轻震确认"听到了"(未 init 则安全跳过)
-            app_slot_return_to_factory();          // 开机已设过,这里重申一次无妨
-            vTaskDelay(pdMS_TO_TICKS(150));        // 让震动发出去再重启
-            esp_restart();
-        }
-    }
-}
-
-esp_err_t app_slot_enable_button_exit(void)
-{
-    (void)core2_power_pek_pressed();        // 丢弃开机按键的残留标志,防一进游戏就退出
-    BaseType_t ok = xTaskCreate(button_exit_task, "pek_exit", PEK_TASK_STACK,
-                                NULL, 3, NULL);
-    if (ok != pdPASS) {
-        ESP_LOGE(TAG, "电源键退出任务创建失败");
-        return ESP_ERR_NO_MEM;
-    }
-    ESP_LOGI(TAG, "电源键短按=回主菜单 已启用");
-    return ESP_OK;
 }

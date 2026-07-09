@@ -19,7 +19,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "=== 躲猫猫昼夜屋 启动(v2 夜里来客) ===");
 
-    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃/电源键退出都回 launcher
+    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃都回 launcher
     app_slot_return_to_factory();
 
     // NVS:相册/游行进度持久化(P4)。分区表已有 nvs(0x9000/16KB),不改表。
@@ -38,8 +38,6 @@ void app_main(void)
                  err == ESP_ERR_NOT_FOUND ? ":确认 Bottom2 底座在位(IMU/电池都来自底座)" : "");
         return;
     }
-
-    app_slot_enable_button_exit();   // 电源键短按 = 回 launcher
 
     // ② 游戏本体(DLight 没插也能进:屏上有提示卡,插上即生效)
     peekaboo_game_start();

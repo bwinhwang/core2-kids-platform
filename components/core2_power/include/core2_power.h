@@ -40,17 +40,6 @@ esp_err_t core2_power_bus_5v(bool on);
  *  开背光后再恢复亮度,避免瞬间闪亮。 */
 esp_err_t core2_power_backlight(bool on);
 
-/** @brief 电源键(PEK)按压检测:自上次调用以来按过(短按或长按)→ true(读后即清标志)。
- *  Core2 唯一实体键,适合做"回主菜单"。
- *  ⚠️ 短按/长按都要算:BSP 初始化写 AXP192 REG 0x36=0x4C → **按住 ≥1s 就置"长按"标志
- *  (bit0)、不再置短按(bit1);按住 ≥4s AXP 硬断电**(硬件行为,软件拦不住)。
- *  只认 bit1 会漏掉"按得稍久"的一下(实机踩坑:时灵时不灵,按到断电也没反应)。
- *  ⚠️ 开机时按键动作会留残留标志,启用前先调用一次丢弃结果。
- *  寄存器:AXP192 IRQ 状态3(REG 0x46)bit1=短按/bit0=长按,写 1 清除
- *  (与 M5Core2 官方库 GetBtnPress 同款用法)。轮询周期建议 100~200ms
- *  (长按标志在 ~1s 时刻置位,须赶在 4s 硬断电前消费掉)。 */
-bool core2_power_pek_pressed(void);
-
 #ifdef __cplusplus
 }
 #endif

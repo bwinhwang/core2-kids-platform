@@ -17,7 +17,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "=== 喂怪兽 启动 ===");
 
-    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃/电源键退出都回 launcher
+    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃都回 launcher
     app_slot_return_to_factory();
 
     // ① 平台一键 bring-up(enable_leds=true 顺带开 M-Bus 5V → PORT.A 超声波才有电)
@@ -28,8 +28,6 @@ void app_main(void)
                  err == ESP_ERR_NOT_FOUND ? ":确认 Bottom2 底座在位(IMU/电池都来自底座)" : "");
         return;
     }
-
-    app_slot_enable_button_exit();   // 电源键短按 = 回 launcher
 
     // ② 游戏本体(超声波没插也能进:屏上有提示卡,插上即生效)
     monster_game_start();

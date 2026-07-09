@@ -10,14 +10,15 @@ factory 分区常驻 **launcher 选择页**(本工程),6 个 ota 槽各放一个
 - **机制** = IDF otadata 启动选择(`esp_ota_set_boot_partition`,**无网络成分**),组件化为 `components/app_slot`。
 - **分区表全表重写**(`partitions.csv`:factory 1.5M + ota_0~5 各 2M + spiffs ~2.4M),**定案冻结,改表=全量重刷**,烧录对照 `tools/flash_map.md`。
 
-## 各游戏接入 launcher 的三处改动
+## 各游戏接入 launcher 的两处改动
 
 每个 app 的 `app_main.c` 需要:
 1. 第一行 `app_slot_return_to_factory()`(此后任何复位/崩溃都回 launcher,**crash-safe**);
-2. `app_slot_enable_button_exit()`(**电源键按一下 = 回 launcher**,AXP192 PEK REG 0x46,`core2_power_pek_pressed()`);
-3. 家长菜单增 Home 按钮。
+2. 家长菜单增 Home 按钮(回 launcher 的唯一软件入口)。
 
-🔴 **电源键短按/长按标志都要算**:BSP 写 REG 0x36=0x4C → 按住 ≥1s 只报"长按"bit0、≥4s AXP 硬断电,首版只认短按 bit1 时灵时不灵——2026-07-03 实机踩坑修正,轮询 150ms+命中先轻震确认,详见 `components/app_slot/README.md`。
+🔴 **电源键触发的回 launcher 已于 2026-07-09 整体取消**(`app_slot_enable_button_exit()` /
+`core2_power_pek_pressed()` 均已删除):电源键唯一剩下的行为是 AXP192 硬件本身按住 ≥4s
+强制断电(纯硬件,不经软件)。详见 `components/app_slot/README.md`。
 
 各工程共享根部 `components/`、`partitions.csv`、`sdkconfig.platform`(经 `SDKCONFIG_DEFAULTS`/`EXTRA_COMPONENT_DIRS` 跨目录引用,已验证可行)。
 
@@ -52,4 +53,4 @@ factory 分区常驻 **launcher 选择页**(本工程),6 个 ota 槽各放一个
 ## 状态
 
 ✅ launcher(608KB)build 通过(各槽余 ~60%);
-⏳ 待实机:全量刷 launcher → 单刷各槽 → 验收"点图标进游戏/电源键短按回 launcher/Home 回 launcher/断电重启回 launcher/单刷迭代不动 launcher"。
+⏳ 待实机:全量刷 launcher → 单刷各槽 → 验收"点图标进游戏/Home 回 launcher(仅 tilt_maze)/断电重启回 launcher/单刷迭代不动 launcher"。

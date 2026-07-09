@@ -6,7 +6,5 @@ idf_component_register(
         esp_partition
         esp_app_format      # esp_app_desc_t
     PRIV_REQUIRES
-        core2_power         # 电源键(PEK)按压检测
-        haptics             # 退出前轻震确认
         esp_system          # esp_restart
 )

@@ -38,12 +38,6 @@ esp_err_t app_slot_launch(int idx);
  *  @param name 非 NULL 时带回该 App 的 project_name(用于选图标/调试)。 */
 bool app_slot_present(int idx, char *name, size_t name_len);
 
-/** @brief 起一个低频后台任务:电源键按一下(短按/按住≈1s 都算)→ 轻震确认 →
- *  回 launcher(设 factory + 重启)。按住 ≥4s 仍是 AXP 硬关机(硬件行为)。
- *  游戏在平台 bring-up 完成后调用一次;launcher 自己不要调。
- *  内部先丢弃开机残留的按键标志(阈值/寄存器坑见 core2_power_pek_pressed 注释)。 */
-esp_err_t app_slot_enable_button_exit(void);
-
 #ifdef __cplusplus
 }
 #endif

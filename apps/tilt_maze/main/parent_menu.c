@@ -56,7 +56,7 @@ static void on_back(lv_event_t *e) { close_menu(); }
 
 static void on_home(lv_event_t *e)
 {
-    // 回 launcher(开机已设过 factory,重申一次再重启;电源键短按同效)
+    // 回 launcher(开机已设过 factory,重申一次再重启)
     ESP_LOGI(TAG, "家长菜单 Home → 回 launcher");
     app_slot_return_to_factory();
     esp_restart();

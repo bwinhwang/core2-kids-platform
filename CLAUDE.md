@@ -23,8 +23,9 @@
 一台给 **3~4 岁幼儿**(不识字、手部精度低、易过度操作、注意力短)的游戏掌机:
 
 - **物理形态**:Core2 主机 + Bottom2 底座(IMU / 500mAh 电池 / 10×SK6812 灯带 / PORT.A·B·C 扩展口)。
-- **一机多游戏**:开机进 launcher 卡带架 → 点图标进某游戏 → **电源键按一下 / 家长菜单 Home 回 launcher**;
-  崩溃/断电也自动回 launcher(见 §9)。
+- **一机多游戏**:开机进 launcher 卡带架 → 点图标进某游戏 → **家长菜单 Home 回 launcher**
+  (电源键退出 2026-07-09 已取消,见 §9;⚠️ 目前仅 tilt_maze 接了家长菜单,其余卡带
+  游玩中暂无回 launcher 入口,只能靠崩溃/复位或整机断电重开);崩溃/断电也自动回 launcher。
 - **每张卡带的共同体验**:拿起某种输入(倾斜 / 旋钮 / 超声波 / 光 / 摇杆)→ **< 100ms 内多通道反馈**
   (画面+声+震动+灯带)→ **零失败**。没有文字、没有计时、没有 game over。
 - **多样的输入靠外接单元**:IMU(内置)、PORT.A 的 Grove I2C 单元(8Encoder / 超声波 / DLight …)、
@@ -120,10 +121,10 @@
 components/
   core2_board/     一键 bring-up:core2_board_init(enable_leds) 固化初始化顺序
                    (AXP192 → LCD/触摸/LVGL/喇叭 → 开 EXTEN 供 5V → 灯带 → PORT.A 懒加载)
-  core2_power/     AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)/ 电源键(PEK)
+  core2_power/     AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)
   core2_sleep/     两级省电编排(打盹 / 深度省电 / 去抖唤醒,机制见 §7)
   motion_detect/   "有没有人在玩"检测(帧间加速度差 + 去抖,纯逻辑)
-  app_slot/        多 App 启动选择(otadata)+ 电源键退出 + 回 factory(见 §9)
+  app_slot/        多 App 启动选择(otadata)+ 回 factory(见 §9;电源键退出 2026-07-09 已取消)
   imu_mpu6886/     MPU6886 最小驱动:输出三轴加速度(g)
   audio_fx/        音效引擎(esp_codec_dev,程序化合成 + play_notes,见 §5)
   haptics/         震动马达(AXP192 LDO3)+ 震动模式库(见 §5)
@@ -293,7 +294,10 @@ components/
 - 🔴 编译走命令行 `idf.py -C launcher|apps/<app> build`(esp-idf MCP build 固定指仓库根、多工程后不可用)。
 - 🔴 **游戏工程严禁 `idf.py flash`**(会烧 0x10000 覆盖 launcher);单刷用 `tools/flash_one.sh <app>`(= `esptool write-flash <槽偏移> <bin>`,偏移见 `tools/flash_map.md`)。
 - 🔴 `partitions.csv` **定案冻结,改表 = 全量重刷**。
-- 每个 app `app_main` 首行 `app_slot_return_to_factory()`(崩溃/复位回 launcher)+ `app_slot_enable_button_exit()`(**电源键按一下回 launcher**,AXP192 PEK REG 0x46;短/长按标志都要算,详见 `components/app_slot/README.md`)+ 家长菜单加 Home。
+- 每个 app `app_main` 首行 `app_slot_return_to_factory()`(崩溃/复位回 launcher)+ 家长菜单加 Home
+  (回 launcher 的唯一软件入口)。**电源键 PEK 检测 2026-07-09 已整体取消**(`core2_power_pek_pressed()`
+  / `app_slot_enable_button_exit()` 均已删除,不再有任何电源键触发的软件动作);电源键唯一剩下的行为是
+  AXP192 硬件本身按住 ≥4s 强制断电(纯硬件,不经软件,原本就拦不住)。
 - 各工程共享根部 `components/`、`partitions.csv`、`sdkconfig.platform`(经 `SDKCONFIG_DEFAULTS`/`EXTRA_COMPONENT_DIRS` 跨目录引用)。
 
 ---

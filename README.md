@@ -11,7 +11,7 @@
    复用指南:**`docs/platform/BSP_GUIDE.md`(新应用必读)**。
 2. **示例应用「倾斜迷宫」**(`apps/tilt_maze`,ota_0):给 3~4 岁幼儿的滚珠迷宫——
    倾斜机身滚球进「家」触发庆祝,零失败、无文字、四通道反馈(屏/声/震/灯带)。
-   它同时是平台组件的用法参考。退出回 launcher:**电源键短按** 或 家长菜单 Home。
+   它同时是平台组件的用法参考。退出回 launcher:**家长菜单 Home**(电源键退出已取消)。
 
 - **应用规格 + 竣工记录**:`CLAUDE.md`(§20 是 as-built 事实,§17 坑位速查)
 - **平台复用指南**:`docs/platform/BSP_GUIDE.md`;各组件用法见 `components/*/README.md`

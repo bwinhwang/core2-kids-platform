@@ -22,7 +22,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "=== 倾斜迷宫 启动 ===");
 
-    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃/电源键退出都回 launcher
+    // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃都回 launcher
     //    (crash-safe,机制见 components/app_slot/README.md)
     app_slot_return_to_factory();
 
@@ -40,8 +40,7 @@ void app_main(void)
     render_init();
     ESP_ERROR_CHECK(feedback_init());
     feedback_emit_hello();                 // 开机问候:音 + 轻震 + 灯带暖色
-    parent_menu_init();                    // 家长隐藏菜单(底部长按 3s)
-    app_slot_enable_button_exit();         // 电源键短按 = 回 launcher
+    parent_menu_init();                    // 家长隐藏菜单(底部长按 3s;Home = 回 launcher)
     game_state_start();                    // 状态机:ATTRACT→校准→PLAY→WIN→下一关
     ESP_LOGI(TAG, "状态机已启动:倾斜机身开始玩");
 }
