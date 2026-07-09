@@ -14,7 +14,7 @@
 | ota_2 | `0x590000` | peekaboo 躲猫猫昼夜屋(DLight) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/peekaboo/build/peekaboo.bin` |
 | ota_3 | `0x790000` | feed_monster 喂怪兽(超声波) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/feed_monster/build/feed_monster.bin` |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
-| ota_5 | `0xB90000` | (预留) | 同上,偏移 `0xB90000` |
+| ota_5 | `0xB90000` | magic_wand 隔空魔法棒(Gesture/RGB @PORT.A/B) | `python -m esptool --chip esp32 -p <PORT> write-flash 0xB90000 apps/magic_wand/build/magic_wand.bin` |
 | storage | `0xD90000` | 共享素材区(spiffs,~2.4M) | 将来放烘焙精灵图/音效 |
 
 `tools/flash_one.sh <app名> [PORT]` 可直接打印/执行对应命令(WSL 内只打印,拿到 WSL 外执行)。
