@@ -7,6 +7,7 @@
 // 硬件:Core2 + Bottom2 + Unit DLight(PORT.A @0x23,吃 M-Bus 5V/EXTEN)。
 
 #include "esp_log.h"
+#include "nvs_flash.h"
 
 #include "app_slot.h"
 #include "core2_board.h"
@@ -16,10 +17,18 @@ static const char *TAG = "peekaboo";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== 躲猫猫昼夜屋 启动 ===");
+    ESP_LOGI(TAG, "=== 躲猫猫昼夜屋 启动(v2 夜里来客) ===");
 
     // ⓪ 第一行先把启动分区设回 factory:此后任何复位/崩溃/电源键退出都回 launcher
     app_slot_return_to_factory();
+
+    // NVS:相册/游行进度持久化(P4)。分区表已有 nvs(0x9000/16KB),不改表。
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvs_err);
 
     // ① 平台一键 bring-up(enable_leds=true 顺带开 M-Bus 5V → PORT.A 的 DLight 才有电)
     core2_board_cfg_t cfg = CORE2_BOARD_CFG_KIDS_DEFAULT;   // 全开、低亮(60%/灯带≤48)

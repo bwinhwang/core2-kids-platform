@@ -11,8 +11,8 @@
 > ⚠️ **硬件平台是「Core2 + M5GO Bottom2」组合体,不是 Core2 单体。** 本机 Core2 核缺背部扩展模块,
 > **IMU 与电池均由 Bottom2 提供**;不接 Bottom2 就没 IMU、没电——绝大多数卡带跑不起来。底座是硬依赖。
 >
-> **各卡带的东西不在本文**:某个游戏的**玩法规格**见 `apps/<name>/SPEC.md`(目前只有 tilt_maze 有完整
-> SPEC),**竣工现状/定案数值/待实机项**见 `apps/<name>/README.md`。做新卡带前先读本文 §2(原则)、§4–§10。
+> **各卡带的东西不在本文**:某个游戏的**玩法规格**见 `apps/<name>/SPEC.md`(目前 tilt_maze 与
+> peekaboo 有完整 SPEC),**竣工现状/定案数值/待实机项**见 `apps/<name>/README.md`。做新卡带前先读本文 §2(原则)、§4–§10。
 >
 > 目标读者:负责实现的 AI 协作者(Claude Code)。**涉及 ESP-IDF / 组件 API 的地方先查 MCP 再写**(`AGENTS.md` §1,清单见 §11)。
 
@@ -36,7 +36,7 @@
 |---|---|---|---|---|
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验证(M0–M5+打盹) | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
-| **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | ⏳ build 通过,待烧录 | `apps/peekaboo/README.md` |
+| **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
@@ -359,7 +359,7 @@ components/
 |---|---|---|---|---|
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验证(M0–M5+打盹) | `apps/tilt_maze/README.md`(规格 `SPEC.md`) |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
-| **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | ⏳ build 通过,待烧录 | `apps/peekaboo/README.md` |
+| **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** Chain 验证台 | ota_4 | Chain Enc/Joy(UART) | ⏳ build 通过,待烧录 | `apps/chain_lab/README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |

@@ -2,6 +2,9 @@ idf_component_register(
     SRCS
         "app_main.c"
         "peekaboo_game.c"
+        "scene.c"
+        "visitor.c"
+        "album.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -14,4 +17,5 @@ idf_component_register(
         haptics             # 震动马达
         audio_fx            # 音效引擎(白天鸡鸣 / 夜晚风铃)
         app_slot            # 多 App 分区自举(回 launcher / 电源键退出)
+        nvs_flash           # 相册/游行进度持久化(P4)
 )
