@@ -1,10 +1,15 @@
-// 抓娃娃机 —— 游戏层实现(SPEC.md §3~§10)
+// 抓娃娃机 —— 游戏层实现(SPEC.md §3~§10;v2.1 深度分层迭代,SPEC §11②)
 //
 // 状态机:PLAY_IDLE ⇄ DESCENDING → GRABBING → ASCENDING → DEPOSIT → PLAY_IDLE
 //        (展示架集满 → PARTY → 重置 → PLAY_IDLE)。
 // 输入:摇杆 X 直接映射吊臂横坐标(始终可控,不受状态门控);编码器帧间 delta 只在
 //      PLAY_IDLE/DESCENDING 时驱动深度,GRABBING/ASCENDING/DEPOSIT/PARTY 期间吃掉输入。
-// 战利品造型本轮用色块占位(SPEC §11④ 留给下一步创作),身份靠颜色区分。
+// 深度=选择器:战利品分住 PIT_LAYERS 个深度层(高低底座),抓取成败 = 横向对齐 + 深度层
+//      匹配双条件;爪子碰到战利品(双条件都满足)有多通道"对上了"提示,此时按抓取键收爪,
+//      或碰住不再转曲柄 TOUCH_DWELL_MS 自动收爪(不按键兜底);转到底照旧自动收爪。
+// v2.2 趣味批:战利品升级为有脸玩偶(PRIZE_LOOK 表,SPEC §11④ 落地);爪子两指开合造型;
+//      拧曲柄每格轻"咔"(音调随深度下沉);金星彩蛋(正常收获后有概率在空坑最深层冒出,
+//      抓到小庆祝、不占展示架——给"转到最深"一个主动追求的理由)。
 #include "crane_game.h"
 
 #include <math.h>
@@ -30,6 +35,7 @@
 #define PANEL_COL        0xF3EEE0
 #define RACK_BG_COL      0xFBF7EE
 #define RAIL_COL         0xB8AF9C
+#define PEDESTAL_COL     0xDCD3C0
 #define ARM_COL          0x8A5A32
 #define CABLE_COL        0x6B6357
 #define CLAW_COL         0xFB8B24
@@ -48,9 +54,21 @@
 #define CLAW_OPEN_W   26
 #define CLAW_CLOSED_W 12
 #define CLAW_H        14
-#define PIT_Y         (CAB_Y1 - 30)
 #define PRIZE_SZ      30
 #define PRIZE_HELD_SZ 26
+#define PEDESTAL_W    18
+#define PEDESTAL_MIN_H 6              // 底座矮于此就不画(最深层贴地)
+#define DOLL_HEADROOM 14              // 玩偶容器在身体上方留的头饰空间(耳朵/呆毛)
+#define DOLL_PAD_X    2               // 容器左右内边距(熊耳/金星光球略宽于身体,防裁切)
+#define EYE_SZ        5
+#define EYE_COL       0x453A2C
+#define CLAW_BAR_H    5               // 爪子横梁高度(两指挂在横梁下)
+#define PRONG_W       6               // 爪指宽度
+
+// 层 → 爪子恰好咬合该层战利品的目标深度(最深层 = DESCEND_MAX_PX,与"转到底自动抓"吻合)
+#define LAYER_DEPTH(L) (DESCEND_MAX_PX - (PIT_LAYERS - 1 - (L)) * PIT_LAYER_STEP_PX)
+// 层 → 战利品顶部 y(命中时爪底 = RAIL_Y+ARM_H+CLAW_H+深度,压入战利品 GRAB_OVERLAP_PX)
+#define PRIZE_TOP_Y(L) (RAIL_Y + ARM_H + CLAW_H - GRAB_OVERLAP_PX + LAYER_DEPTH(L))
 
 #define RACK_Y        4
 #define RACK_SLOT     28
@@ -61,14 +79,37 @@
 #define CONFETTI_N    8
 #define WIGGLE_FRAMES 4
 
-// ── 战利品配色表(身份靠颜色区分,造型留待下一步创作,SPEC §11④)───────────────
+// ── 战利品配色 + 玩偶造型表(SPEC §11④ 落地;第 6 项 = 金星彩蛋)──────────────
+#define KIND_GOLDEN PRIZE_TYPES   // 金星彩蛋的 kind(不占展示架,不参与集满判定)
+
 typedef struct { uint32_t base, accent; } prize_style_t;
-static const prize_style_t PRIZE_STYLE[PRIZE_TYPES] = {
-    { 0xE6533C, 0xFFD9CE },   // 珊瑚红
-    { 0x4FB0D8, 0xDFF3FA },   // 天蓝
-    { 0xF5C242, 0xFFF3B0 },   // 暖黄
-    { 0x6FBF73, 0xE1F5DE },   // 草绿
-    { 0xC77DD1, 0xF3E1F7 },   // 紫粉
+static const prize_style_t PRIZE_STYLE[PRIZE_TYPES + 1] = {
+    { 0xE6533C, 0xFFD9CE },   // 珊瑚红·小熊
+    { 0x4FB0D8, 0xDFF3FA },   // 天蓝·呆毛
+    { 0xF5C242, 0xFFF3B0 },   // 暖黄·小鸡
+    { 0x6FBF73, 0xE1F5DE },   // 草绿·青蛙
+    { 0xC77DD1, 0xF3E1F7 },   // 紫粉·兔子
+    { 0xF6C445, 0xFFF3C2 },   // 金星(彩蛋)
+};
+
+// 玩偶造型:身体圆 + 特征件 A/B(耳/呆毛/凸眼底)+ 双眼 + 嘴/喙,全部 plain 色块。
+// 坐标相对身体左上角(可为负,容器统一加 DOLL_HEADROOM 偏移);w=0 表示该件不显示。
+typedef struct {
+    int8_t   aw, ah, ax, ay;    // 特征件 A
+    int8_t   bw, bh, bx, by;    // 特征件 B
+    uint32_t part_col;          // A/B 颜色
+    int8_t   elx, erx, ey;      // 双眼左/右 x 与共同 y(EYE_SZ 圆点)
+    int8_t   mw, mh, mx, my;    // 嘴/喙
+    uint32_t mouth_col;
+} prize_look_t;
+
+static const prize_look_t PRIZE_LOOK[PRIZE_TYPES + 1] = {
+    { 10,10,-2,-6,  10,10,22,-6,  0xC93A26,  7,18,12,  8,4,11,19,  0x8A2B1C },  // 熊:圆耳×2
+    {  9, 9,10,-6,   0, 0, 0, 0,  0x2E86B0,  7,18,12,  7,3,11,20,  0x1F6E96 },  // 呆毛:头顶单圆
+    {  7, 7,11,-5,   0, 0, 0, 0,  0xE6533C,  7,18,11,  9,5,10,16,  0xF08A24 },  // 小鸡:红冠+橙喙
+    { 11,11, 1,-7,  11,11,18,-7,  0xFFFFFF,  4,21,-4, 10,3,10,17,  0x3F7A44 },  // 青蛙:白凸眼×2
+    {  8,16, 4,-13,  8,16,18,-13, 0xE3BCEB,  7,18,12,  6,3,12,19,  0x7A4184 },  // 兔:长耳×2
+    {  8, 8,-1,-4,   8, 8,23,-4,  0xFFE58A,  7,18,12,  6,3,12,19,  0xC08A20 },  // 金星:侧光球×2
 };
 
 // 下降深度 → 编码器节点 RGB(浅→深,离散几档,不逐帧渐变,SPEC §4)
@@ -107,7 +148,12 @@ static int  s_deposit_from_x, s_deposit_from_y, s_deposit_to_x, s_deposit_to_y;
 
 static bool s_pit_present[PRIZE_TYPES];
 static int  s_pit_kind[PRIZE_TYPES];
+static int  s_pit_layer[PRIZE_TYPES];
 static int  s_pit_slot_x[PRIZE_TYPES];
+
+static int  s_touch_slot = -1;   // 爪子当前碰到的坑位(横向对齐 + 深度层匹配),-1 = 没碰到
+static int  s_touch_frames;      // 碰住且不转曲柄的持续帧数(dwell 自动收爪用)
+static int  s_crank_cool;        // 曲柄"咔"声节流倒计时(帧)
 
 static bool s_rack_got[PRIZE_TYPES];
 static int  s_rack_slot_x[PRIZE_TYPES];
@@ -123,10 +169,14 @@ static int  s_led_base = -1;
 static int  s_confetti_vx[CONFETTI_N];
 
 // ── LVGL 对象 ────────────────────────────────────────────────────────
-static lv_obj_t *s_arm, *s_cable, *s_claw;
-static lv_obj_t *s_pit_body[PRIZE_TYPES], *s_pit_accent[PRIZE_TYPES];
+static lv_obj_t *s_arm, *s_cable;
+static lv_obj_t *s_claw_bar, *s_claw_l, *s_claw_r;   // 爪子:横梁 + 左右两指
+static lv_obj_t *s_pit_pedestal[PRIZE_TYPES];
+static lv_obj_t *s_pit_doll[PRIZE_TYPES];            // 玩偶容器(整只一起移动/隐藏)
+static lv_obj_t *s_pit_body[PRIZE_TYPES], *s_pit_parta[PRIZE_TYPES], *s_pit_partb[PRIZE_TYPES];
+static lv_obj_t *s_pit_eyel[PRIZE_TYPES], *s_pit_eyer[PRIZE_TYPES], *s_pit_mouth[PRIZE_TYPES];
 static lv_obj_t *s_rack_body[PRIZE_TYPES], *s_rack_accent[PRIZE_TYPES];
-static lv_obj_t *s_held_body, *s_held_accent;
+static lv_obj_t *s_held_body;                        // 被抓玩偶(身体 + 双眼子对象)
 static lv_obj_t *s_confetti[CONFETTI_N];
 static lv_obj_t *s_hint_card;
 
@@ -161,25 +211,49 @@ static void set_depth_led(int depth)
 }
 
 // ── 战利品坑 / 展示架 / 跟随精灵 ─────────────────────────────────────────
+// 玩偶零件通用装扮:w<=0 隐藏;圆件(w==h)用圆角圆,长件(兔耳)用小圆角
+static void doll_part(lv_obj_t *o, int w, int h, int x, int y, uint32_t col)
+{
+    if (w <= 0) { lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); return; }
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_pos(o, x + DOLL_PAD_X, y + DOLL_HEADROOM);
+    lv_obj_set_style_bg_color(o, lv_color_hex(col), 0);
+    lv_obj_set_style_radius(o, (w == h) ? LV_RADIUS_CIRCLE : 3, 0);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+// 按 kind 装扮玩偶(身体+特征件+眼+嘴)+ 按 layer 摆位(玩偶 + 底座);调用方持有 bsp_display_lock
 static void pit_slot_paint(int i)
 {
     int kind = s_pit_kind[i];
+    int top  = PRIZE_TOP_Y(s_pit_layer[i]);
+    const prize_look_t *lk = &PRIZE_LOOK[kind];
+
     lv_obj_set_style_bg_color(s_pit_body[i], lv_color_hex(PRIZE_STYLE[kind].base), 0);
-    lv_obj_set_style_bg_color(s_pit_accent[i], lv_color_hex(PRIZE_STYLE[kind].accent), 0);
-    lv_obj_remove_flag(s_pit_body[i], LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_pit_accent[i], LV_OBJ_FLAG_HIDDEN);
+    doll_part(s_pit_parta[i], lk->aw, lk->ah, lk->ax, lk->ay, lk->part_col);
+    doll_part(s_pit_partb[i], lk->bw, lk->bh, lk->bx, lk->by, lk->part_col);
+    doll_part(s_pit_eyel[i], EYE_SZ, EYE_SZ, lk->elx, lk->ey, EYE_COL);
+    doll_part(s_pit_eyer[i], EYE_SZ, EYE_SZ, lk->erx, lk->ey, EYE_COL);
+    doll_part(s_pit_mouth[i], lk->mw, lk->mh, lk->mx, lk->my, lk->mouth_col);
+    lv_obj_set_pos(s_pit_doll[i], s_pit_slot_x[i] - PRIZE_SZ / 2 - DOLL_PAD_X, top - DOLL_HEADROOM);
+    lv_obj_remove_flag(s_pit_doll[i], LV_OBJ_FLAG_HIDDEN);
+
+    int ped_top = top + PRIZE_SZ - 2;   // 与玩偶底重叠 2px 防缝
+    int ped_h   = CAB_Y1 - ped_top;
+    if (ped_h >= PEDESTAL_MIN_H) {
+        lv_obj_set_size(s_pit_pedestal[i], PEDESTAL_W, ped_h);
+        lv_obj_set_pos(s_pit_pedestal[i], s_pit_slot_x[i] - PEDESTAL_W / 2, ped_top);
+        lv_obj_remove_flag(s_pit_pedestal[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_pit_pedestal[i], LV_OBJ_FLAG_HIDDEN);   // 最深层贴地,无底座
+    }
 }
 
 static void pit_slot_show(int i, bool show)
 {
     bsp_display_lock(0);
-    if (show) {
-        lv_obj_remove_flag(s_pit_body[i], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_pit_accent[i], LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_pit_body[i], LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_pit_accent[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    if (show) lv_obj_remove_flag(s_pit_doll[i], LV_OBJ_FLAG_HIDDEN);
+    else      lv_obj_add_flag(s_pit_doll[i], LV_OBJ_FLAG_HIDDEN);
     bsp_display_unlock();
 }
 
@@ -188,22 +262,18 @@ static void held_prize_show(int kind, bool show)
     bsp_display_lock(0);
     if (show) {
         lv_obj_set_style_bg_color(s_held_body, lv_color_hex(PRIZE_STYLE[kind].base), 0);
-        lv_obj_set_style_bg_color(s_held_accent, lv_color_hex(PRIZE_STYLE[kind].accent), 0);
         lv_obj_remove_flag(s_held_body, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_held_accent, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_held_body, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_held_accent, LV_OBJ_FLAG_HIDDEN);
     }
     bsp_display_unlock();
 }
 
-// cx/cy = 目标中心坐标(供上升跟随 / 落架飞行插值复用)
+// cx/cy = 目标中心坐标(供上升跟随 / 落架飞行插值复用);双眼是子对象,随身体走
 static void position_held_prize_at(int cx, int cy)
 {
     bsp_display_lock(0);
     lv_obj_set_pos(s_held_body, cx - PRIZE_HELD_SZ / 2, cy - PRIZE_HELD_SZ / 2);
-    lv_obj_set_pos(s_held_accent, cx - PRIZE_HELD_SZ / 2 + 7, cy - PRIZE_HELD_SZ / 2 + 3);
     bsp_display_unlock();
 }
 
@@ -218,17 +288,23 @@ static void mark_rack_collected(int kind)
     bsp_display_unlock();
 }
 
-// Fisher-Yates 洗一批新战利品坑位(5 种各一,顺序随机)
+// Fisher-Yates 洗一批新战利品坑位(5 种各一,顺序随机);层分配保证浅/中/深都有
 static void shuffle_pit(void)
 {
-    int order[PRIZE_TYPES];
-    for (int i = 0; i < PRIZE_TYPES; i++) order[i] = i;
+    int order[PRIZE_TYPES], layer[PRIZE_TYPES];
+    for (int i = 0; i < PRIZE_TYPES; i++) {
+        order[i] = i;
+        layer[i] = (i < PIT_LAYERS) ? i : (int)(esp_random() % PIT_LAYERS);
+    }
     for (int i = PRIZE_TYPES - 1; i > 0; i--) {
         int j = (int)(esp_random() % (uint32_t)(i + 1));
         int t = order[i]; order[i] = order[j]; order[j] = t;
+        j = (int)(esp_random() % (uint32_t)(i + 1));
+        t = layer[i]; layer[i] = layer[j]; layer[j] = t;
     }
     for (int i = 0; i < PRIZE_TYPES; i++) {
         s_pit_kind[i]    = order[i];
+        s_pit_layer[i]   = layer[i];
         s_pit_present[i] = true;
     }
 }
@@ -299,24 +375,59 @@ static void tick_wiggle(void)
     if (s_wiggle_frames == 0) s_wiggle_dx = 0;
 }
 
-// ── 坑位命中测试(中心点容差带,SPEC §5)───────────────────────────────────
-static int find_pit_slot_near(int x)
+// ── 坑位命中测试(横向中心点容差带 + 深度层容差带,双条件,SPEC §5)─────────────
+static int find_pit_slot_at(int x, int depth)
 {
     int best = -1, best_d = GRAB_ALIGN_TOL_PX + 1;
     for (int i = 0; i < PRIZE_TYPES; i++) {
         if (!s_pit_present[i]) continue;
+        if (abs(depth - LAYER_DEPTH(s_pit_layer[i])) > GRAB_DEPTH_TOL_PX) continue;
         int d = abs(x - s_pit_slot_x[i]);
         if (d <= GRAB_ALIGN_TOL_PX && d < best_d) { best = i; best_d = d; }
     }
     return best;
 }
 
+// 碰触时玩偶的小幅摆动(dx=0 归位);不动底座,整只容器一起动
+static void pit_prize_offset(int i, int dx)
+{
+    bsp_display_lock(0);
+    lv_obj_set_x(s_pit_doll[i], s_pit_slot_x[i] - PRIZE_SZ / 2 - DOLL_PAD_X + dx);
+    bsp_display_unlock();
+}
+
+// 金星彩蛋:正常战利品收进展示架后,概率在一个空坑位的最深层冒出(同屏最多一颗)
+static void maybe_spawn_golden(void)
+{
+    for (int i = 0; i < PRIZE_TYPES; i++)
+        if (s_pit_present[i] && s_pit_kind[i] == KIND_GOLDEN) return;
+    if ((int)(esp_random() % 100) >= GOLDEN_CHANCE_PCT) return;
+
+    int empties[PRIZE_TYPES], n = 0;
+    for (int i = 0; i < PRIZE_TYPES; i++)
+        if (!s_pit_present[i]) empties[n++] = i;
+    if (n == 0) return;
+
+    int slot = empties[esp_random() % (uint32_t)n];
+    s_pit_kind[slot]    = KIND_GOLDEN;
+    s_pit_layer[slot]   = PIT_LAYERS - 1;   // 金星只住最深层(SPEC §11② 深度激励)
+    s_pit_present[slot] = true;
+    bsp_display_lock(0);
+    pit_slot_paint(slot);
+    bsp_display_unlock();
+    audio_fx_play(SND_NEAR);   // 出现提示(共用"接近"音签,轻)
+}
+
 // ── 状态转换 ─────────────────────────────────────────────────────────
 static void enter_grabbing(void)
 {
+    if (s_touch_slot >= 0) pit_prize_offset(s_touch_slot, 0);   // 摆动归位再收爪
+    s_touch_slot   = -1;
+    s_touch_frames = 0;
+
     s_state = CRANE_GRABBING;
     s_state_frames = 0;
-    s_grabbed_slot = find_pit_slot_near(s_arm_x);
+    s_grabbed_slot = find_pit_slot_at(s_arm_x, s_depth);
 
     led_base_set(LED_BASE_AMBIENT);
     chain_lab_enc_rgb(255, 255, 255);   // 闪白(复用现状按下逻辑,SPEC §4)
@@ -339,7 +450,10 @@ static void enter_ascending(void)
     s_ascend_from_depth = s_depth;
 
     if (s_grabbed_slot >= 0) {
-        chain_lab_enc_rgb(20, 200, 90);   // 成功色:绿
+        if (s_pit_kind[s_grabbed_slot] == KIND_GOLDEN)
+            chain_lab_enc_rgb(255, 214, 64);   // 金星:上升途中亮金色
+        else
+            chain_lab_enc_rgb(20, 200, 90);    // 成功色:绿
         audio_fx_play_notes((audio_note_t[]){ { 659, 90, 45 }, { 880, 110, 50 } }, 2);
         haptics_play(HAPTIC_COLLECT);
         ledstrip_fx_trigger(LED_FX_COLLECT);
@@ -357,9 +471,11 @@ static void enter_deposit(void)
     s_state_frames = 0;
 
     if (s_grabbed_slot >= 0) {
+        int kind = s_pit_kind[s_grabbed_slot];
         s_deposit_from_x = s_arm_x;
         s_deposit_from_y = RAIL_Y + ARM_H + CLAW_H / 2;
-        s_deposit_to_x   = s_rack_slot_x[s_pit_kind[s_grabbed_slot]] + RACK_SLOT / 2;
+        s_deposit_to_x   = (kind == KIND_GOLDEN) ? SCREEN_W / 2   // 金星飞向展示架正中"绽放"
+                                                 : s_rack_slot_x[kind] + RACK_SLOT / 2;
         s_deposit_to_y   = RACK_Y + RACK_SLOT / 2;
     }
 }
@@ -380,7 +496,15 @@ static void apply_descend_delta(int delta)
     int nd = s_depth + delta * DESCEND_PER_TICK;
     if (nd < 0) nd = 0;
     if (nd > DESCEND_MAX_PX) nd = DESCEND_MAX_PX;
+    bool moved = (nd != s_depth);
     s_depth = nd;
+    s_touch_frames = 0;   // 还在转曲柄 = 还在选,dwell 重新计(只有停住才算"就要这个")
+
+    if (moved && s_crank_cool <= 0) {   // 每格轻"咔"(SPEC §4),节流防连转噪音;越深音越低
+        uint16_t f = (uint16_t)(1500 - s_depth * 4);
+        audio_fx_play_notes((audio_note_t[]){ { f, 20, 35 } }, 1);
+        s_crank_cool = CRANK_TICK_MIN_MS / POLL_PERIOD_MS;
+    }
 
     if (s_depth >= DESCEND_MAX_PX - DESCEND_SNAP_TOL) {
         s_depth = DESCEND_MAX_PX;
@@ -389,8 +513,38 @@ static void apply_descend_delta(int delta)
     }
 
     s_state = (s_depth > 0) ? CRANE_DESCENDING : CRANE_PLAY_IDLE;
-    led_base_set(s_depth > 0 ? LED_BASE_NEAR : LED_BASE_AMBIENT);
-    set_depth_led(s_depth);
+    if (s_touch_slot < 0) set_depth_led(s_depth);   // 碰触期间节点灯归 update_touch 管
+}
+
+// ── 碰触检测(每帧,PLAY_IDLE/DESCENDING):对上了 → 多通道提示 + dwell 自动收爪 ──
+static void update_touch(void)
+{
+    if (s_state != CRANE_PLAY_IDLE && s_state != CRANE_DESCENDING) return;
+
+    int cur = find_pit_slot_at(s_arm_x, s_depth);
+    if (cur != s_touch_slot) {
+        if (s_touch_slot >= 0) pit_prize_offset(s_touch_slot, 0);
+        s_touch_slot   = cur;
+        s_touch_frames = 0;
+        if (cur >= 0) {   // 对上了:节点灯变战利品色 + 上扬叮铃 + 轻触感 + 灯带加亮
+            uint32_t c = PRIZE_STYLE[s_pit_kind[cur]].base;
+            chain_lab_enc_rgb((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+            audio_fx_play(SND_NEAR);
+            haptics_play(HAPTIC_BUMP_LIGHT);
+            led_base_set(LED_BASE_NEAR);
+        } else {          // 离开:恢复深度色 + 常态微光
+            set_depth_led(s_depth);
+            led_base_set(LED_BASE_AMBIENT);
+        }
+        return;
+    }
+    if (cur < 0) return;
+
+    s_touch_frames++;
+    pit_prize_offset(cur, ((s_touch_frames >> 1) & 1) ? 2 : -2);   // ~5Hz 小幅摆动(氛围档)
+    if (s_touch_frames >= TOUCH_DWELL_MS / POLL_PERIOD_MS) {
+        enter_grabbing();   // 碰住不放 = 就要这个:自动收爪(不按键也能玩的兜底)
+    }
 }
 
 // ── 每状态的每帧推进 ─────────────────────────────────────────────────────
@@ -446,7 +600,17 @@ static void tick_deposit(void)
         if (s_grabbed_slot >= 0) {
             int kind = s_pit_kind[s_grabbed_slot];
             held_prize_show(kind, false);
-            mark_rack_collected(kind);
+            if (kind == KIND_GOLDEN) {   // 金星:不占展示架,小庆祝(比派对短)
+                audio_fx_play_notes((audio_note_t[]){
+                    { 784, 70, 55 }, { 988, 70, 55 }, { 1319, 130, 60 } }, 3);
+                haptics_play(HAPTIC_COLLECT);
+                ledstrip_fx_trigger(LED_FX_SWEEP_L2R);
+                chain_lab_enc_rgb(255, 214, 64);
+                chain_lab_joy_rgb(255, 214, 64);
+            } else {
+                mark_rack_collected(kind);
+                maybe_spawn_golden();
+            }
             s_grabbed_slot = -1;
         }
         set_depth_led(0);
@@ -531,6 +695,7 @@ static void handle_encoder(void)
 }
 
 // ── 渲染(动态层:吊臂/缆绳/爪子,每帧小脏矩形,SPEC §10)───────────────────
+// 爪子 = 横梁 + 左右两指;s_claw_w 是两指外沿间距(开→合 = 两指向中间并拢)
 static void render_frame(void)
 {
     bsp_display_lock(0);
@@ -541,8 +706,9 @@ static void render_frame(void)
     lv_obj_set_pos(s_arm, s_arm_x - ARM_W / 2, arm_y);
     lv_obj_set_pos(s_cable, s_arm_x - CABLE_W / 2, arm_y + ARM_H);
     lv_obj_set_size(s_cable, CABLE_W, s_depth > 0 ? s_depth : 1);
-    lv_obj_set_size(s_claw, s_claw_w, CLAW_H);
-    lv_obj_set_pos(s_claw, s_arm_x - s_claw_w / 2 + s_wiggle_dx, claw_y);
+    lv_obj_set_pos(s_claw_bar, s_arm_x - CLAW_OPEN_W / 2 + s_wiggle_dx, claw_y);
+    lv_obj_set_pos(s_claw_l, s_arm_x - s_claw_w / 2 + s_wiggle_dx, claw_y + CLAW_BAR_H - 2);
+    lv_obj_set_pos(s_claw_r, s_arm_x + s_claw_w / 2 - PRONG_W + s_wiggle_dx, claw_y + CLAW_BAR_H - 2);
 
     bsp_display_unlock();
 }
@@ -577,29 +743,44 @@ void crane_game_create(void)
         s_rack_accent[i] = accent;
     }
 
-    // 战利品坑:横向铺满 CRANE_X_RANGE_PX,与吊臂可达范围一一对齐
+    // 战利品坑:横向铺满 CRANE_X_RANGE_PX,与吊臂可达范围一一对齐;
+    // 底座先建(垫在玩偶下层),位置/高度每轮由 pit_slot_paint 按层摆
     for (int i = 0; i < PRIZE_TYPES; i++) {
         s_pit_slot_x[i] = (PRIZE_TYPES > 1)
             ? ARM_X_MIN + i * (CRANE_X_RANGE_PX / (PRIZE_TYPES - 1))
             : SCREEN_W / 2;
-        lv_obj_t *body = plain(scr, PRIZE_SZ, PRIZE_SZ, UNCOLLECTED_BASE, LV_RADIUS_CIRCLE);
-        lv_obj_set_pos(body, s_pit_slot_x[i] - PRIZE_SZ / 2, PIT_Y);
-        lv_obj_t *accent = plain(scr, 10, 10, 0xFFFFFF, LV_RADIUS_CIRCLE);
-        lv_obj_set_pos(accent, s_pit_slot_x[i] - PRIZE_SZ / 2 + 8, PIT_Y + 4);
-        s_pit_body[i]   = body;
-        s_pit_accent[i] = accent;
+        s_pit_pedestal[i] = plain(scr, PEDESTAL_W, PEDESTAL_MIN_H, PEDESTAL_COL, 3);
+        lv_obj_add_flag(s_pit_pedestal[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    // 玩偶 = 透明容器 + 身体/特征件/眼/嘴子对象(整只一起移动;装扮由 pit_slot_paint 按 kind 配)
+    // 特征件先建(垫在身体后,耳朵从脑后长出),眼/嘴后建(盖在脸上)
+    for (int i = 0; i < PRIZE_TYPES; i++) {
+        s_pit_doll[i] = plain(scr, PRIZE_SZ + 2 * DOLL_PAD_X, DOLL_HEADROOM + PRIZE_SZ, 0, 0);
+        lv_obj_set_style_bg_opa(s_pit_doll[i], LV_OPA_TRANSP, 0);
+        s_pit_parta[i] = plain(s_pit_doll[i], 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
+        s_pit_partb[i] = plain(s_pit_doll[i], 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
+        s_pit_body[i]  = plain(s_pit_doll[i], PRIZE_SZ, PRIZE_SZ, UNCOLLECTED_BASE, LV_RADIUS_CIRCLE);
+        lv_obj_set_pos(s_pit_body[i], DOLL_PAD_X, DOLL_HEADROOM);
+        s_pit_eyel[i]  = plain(s_pit_doll[i], EYE_SZ, EYE_SZ, EYE_COL, LV_RADIUS_CIRCLE);
+        s_pit_eyer[i]  = plain(s_pit_doll[i], EYE_SZ, EYE_SZ, EYE_COL, LV_RADIUS_CIRCLE);
+        s_pit_mouth[i] = plain(s_pit_doll[i], 6, 3, 0xFFFFFF, 1);
+        lv_obj_add_flag(s_pit_doll[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 被抓中的战利品跟随精灵(初始隐藏)
-    s_held_body   = plain(scr, PRIZE_HELD_SZ, PRIZE_HELD_SZ, 0xFFFFFF, LV_RADIUS_CIRCLE);
-    s_held_accent = plain(scr, 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
+    // 被抓中的玩偶跟随精灵(身体 + 双眼子对象,初始隐藏)
+    s_held_body = plain(scr, PRIZE_HELD_SZ, PRIZE_HELD_SZ, 0xFFFFFF, LV_RADIUS_CIRCLE);
+    lv_obj_t *hel = plain(s_held_body, EYE_SZ, EYE_SZ, EYE_COL, LV_RADIUS_CIRCLE);
+    lv_obj_set_pos(hel, 6, 10);
+    lv_obj_t *her = plain(s_held_body, EYE_SZ, EYE_SZ, EYE_COL, LV_RADIUS_CIRCLE);
+    lv_obj_set_pos(her, 15, 10);
     lv_obj_add_flag(s_held_body, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_held_accent, LV_OBJ_FLAG_HIDDEN);
 
-    // 动态层:吊臂(小车)/ 缆绳 / 爪子
-    s_arm   = plain(scr, ARM_W, ARM_H, ARM_COL, 6);
-    s_cable = plain(scr, CABLE_W, 1, CABLE_COL, 2);
-    s_claw  = plain(scr, CLAW_OPEN_W, CLAW_H, CLAW_COL, 4);
+    // 动态层:吊臂(小车)/ 缆绳 / 爪子(横梁 + 左右两指)
+    s_arm      = plain(scr, ARM_W, ARM_H, ARM_COL, 6);
+    s_cable    = plain(scr, CABLE_W, 1, CABLE_COL, 2);
+    s_claw_bar = plain(scr, CLAW_OPEN_W, CLAW_BAR_H, CLAW_COL, 2);
+    s_claw_l   = plain(scr, PRONG_W, CLAW_H, CLAW_COL, 2);
+    s_claw_r   = plain(scr, PRONG_W, CLAW_H, CLAW_COL, 2);
 
     // 派对彩纸(初始隐藏)
     for (int i = 0; i < CONFETTI_N; i++) {
@@ -640,8 +821,11 @@ void crane_game_create(void)
 
 void crane_game_tick(void)
 {
+    if (s_crank_cool > 0) s_crank_cool--;
+
     handle_joystick();
     handle_encoder();
+    update_touch();
 
     switch (s_state) {
     case CRANE_GRABBING:  tick_grabbing();  break;
@@ -677,6 +861,10 @@ void crane_game_reset_position(void)
     s_wiggle_dx     = 0;
     s_wiggle_frames = 0;
     s_arm_x         = SCREEN_W / 2;
+
+    if (s_touch_slot >= 0) pit_prize_offset(s_touch_slot, 0);   // 摆动中的战利品归位
+    s_touch_slot   = -1;
+    s_touch_frames = 0;
 
     if (s_grabbed_slot >= 0) {   // 深度省电打断了正在进行的抓取:战利品还给坑,不计入收集
         held_prize_show(s_pit_kind[s_grabbed_slot], false);

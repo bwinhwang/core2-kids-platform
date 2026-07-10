@@ -42,6 +42,18 @@
 #define DESCEND_MAX_PX       140    // 最大下降深度(爪子触底)
 #define DESCEND_SNAP_TOL      10    // 接近最大深度时"转够了自动到底"的容忍区间
 #define GRAB_ALIGN_TOL_PX     24    // 抓取横向对齐容差(战利品中心 ± 此值即可抓中)
+
+// ── 深度分层(深度=选择器:战利品住在不同深度层,SPEC §11② 迭代)──────────────
+#define PIT_LAYERS             3    // 坑内深度层数(浅/中/深),最深层 = DESCEND_MAX_PX
+#define PIT_LAYER_STEP_PX     44    // 相邻两层的目标深度差(层带之间留 8px 中性间隙)
+#define GRAB_DEPTH_TOL_PX     18    // 抓取纵向容差(层目标深度 ± 此值内视为够到了)
+#define GRAB_OVERLAP_PX       12    // 命中时爪底压入战利品顶的视觉咬合量
+#define TOUCH_DWELL_MS       700    // 碰住战利品且不再转曲柄,持续此时长自动收爪(不按键兜底)
+
+// ── 趣味批(v2.2)────────────────────────────────────────────────────
+#define CRANK_TICK_MIN_MS    150    // 拧曲柄"咔"声的最小间隔(节流,防连转刷屏噪音)
+#define GOLDEN_CHANCE_PCT     33    // 正常战利品收进展示架后,空坑最深层冒出金星的概率(%)
+
 #define GRAB_MS               500   // 抓取(爪子闭合)动画时长
 #define ASCEND_MS             750   // 上升动画时长
 #define DEPOSIT_MS            500   // 战利品落架 / 空爪弹回动画时长
