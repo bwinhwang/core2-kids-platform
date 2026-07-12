@@ -14,6 +14,7 @@ declare -A SLOT=(
     [tilt_maze]=0x190000
     [busy_knobs]=0x390000
     [peekaboo]=0x590000
+    [chick_pour]=0x590000
     [feed_monster]=0x790000
     [chain_lab]=0x990000
     [magic_wand]=0xB90000

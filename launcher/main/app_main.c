@@ -161,6 +161,25 @@ static void make_peekaboo_icon(lv_obj_t *btn)
     lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -6, 4);
 }
 
+// ── 图标:小鸡回窝(白底面板:红顶鸡窝 + 门洞 + 黄小鸡)────────────────
+static void make_chick_icon(lv_obj_t *btn)
+{
+    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t *house = plain(panel, 22, 19, 0xE8C79A, 4);                 // 木屋身
+    lv_obj_align(house, LV_ALIGN_BOTTOM_LEFT, 3, -3);
+    lv_obj_t *roof = plain(panel, 26, 8, 0xD9483A, 4);                   // 红屋顶
+    lv_obj_align(roof, LV_ALIGN_BOTTOM_LEFT, 1, -20);
+    lv_obj_t *door = plain(house, 8, 11, 0x452F1D, 3);                   // 门洞
+    lv_obj_align(door, LV_ALIGN_BOTTOM_RIGHT, -2, -2);
+    lv_obj_t *chick = plain(panel, 14, 14, 0xF7C233, LV_RADIUS_CIRCLE);  // 往家走的小鸡
+    lv_obj_align(chick, LV_ALIGN_BOTTOM_RIGHT, -4, -5);
+    lv_obj_t *eye = plain(chick, 3, 3, 0x3A3A38, LV_RADIUS_CIRCLE);
+    lv_obj_align(eye, LV_ALIGN_CENTER, -2, -2);
+    lv_obj_t *beak = plain(chick, 5, 4, 0xF0A030, 2);                    // 喙朝家的方向
+    lv_obj_align(beak, LV_ALIGN_LEFT_MID, -2, 2);
+}
+
 // ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
 static void make_generic_icon(lv_obj_t *btn)
 {
@@ -209,6 +228,7 @@ static void make_slot(lv_obj_t *scr, int idx, int x, int y)
         else if (strcmp(name, "feed_monster") == 0) make_monster_icon(btn);
         else if (strcmp(name, "chain_lab") == 0)    make_chain_icon(btn);
         else if (strcmp(name, "peekaboo") == 0)     make_peekaboo_icon(btn);
+        else if (strcmp(name, "chick_pour") == 0)   make_chick_icon(btn);
         else                                        make_generic_icon(btn);
         // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
         lv_obj_t *lbl = lv_label_create(btn);
