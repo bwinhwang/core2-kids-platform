@@ -8,10 +8,25 @@ static const char *TAG = "unit_gesture";
 #define REG_PART_ID_LOW     0x00
 #define REG_PART_ID_HIGH    0x01
 #define REG_RESULT_0        0x43   // bank0:8 个方向/旋转手势位
-#define REG_RESULT_1        0x44   // bank0:bit0 = 快速挥手(Wave)
+#define REG_RESULT_1        0x44   // bank0:bit0 = 快速挥手(Wave);光标模式下同址是 CURSOR_INT
 
 #define PART_ID_LOW_EXPECT   0x20
 #define PART_ID_HIGH_EXPECT  0x76
+
+// 光标模式寄存器(bank0,核实记录见头文件"光标模式"大段注释)
+#define REG_CURSOR_X_LOW    0x3B
+#define REG_CURSOR_X_HIGH   0x3C
+#define REG_CURSOR_Y_LOW    0x3D
+#define REG_CURSOR_Y_HIGH   0x3E
+#define REG_CURSOR_INT      0x44   // 与 REG_RESULT_1 同址,模式互斥不冲突
+
+#define CUR_HAS_OBJECT      0x04  // bit2,Confirmed via RevEng_PAJ7620 CUR_HAS_OBJECT
+#define CUR_NO_OBJECT       0x80  // bit7,Confirmed via RevEng_PAJ7620 CUR_NO_OBJECT
+
+// 在场信号寄存器(bank0,核实记录见头文件"在场信号"大段注释)
+#define REG_OBJ_BRIGHTNESS   0xB0   // 只读 [7:0],0..255
+#define REG_OBJ_SIZE_LSB     0xB1   // 只读 [7:0]
+#define REG_OBJ_SIZE_MSB     0xB2   // 只读 [3:0](头文件原注释,非 [11:8])
 
 #define I2C_SPEED_HZ    100000
 #define I2C_TIMEOUT_MS  50
@@ -69,10 +84,51 @@ static const uint8_t s_init_regs[219][2] = {
     {0x76,0x31}, {0x77,0x01}, {0x7C,0x84}, {0x7D,0x03}, {0x7E,0x01},
 };
 
+// 光标模式叠加写表 —— 逐字节抄自 RevEng_PAJ7620 的 setCursorModeRegisterArray
+// (核实记录见头文件),对现有 219 组出厂表做"叠加",不是替换。
+static const uint8_t s_cursor_mode_regs[][2] = {
+    {0xEF,0x00},
+    {0x32,0x29},
+    {0x33,0x01}, {0x34,0x00},
+    {0x35,0x01}, {0x36,0x00},
+    {0x37,0x03}, {0x38,0x1B}, {0x39,0x03}, {0x3A,0x1B},
+    {0x41,0x00},
+    {0x42,0x84},
+    {0x8B,0x01},
+    {0x8C,0x07},
+    {0xEF,0x01},
+    {0x04,0x03},
+    {0x74,0x03},
+    {0xEF,0x00},
+};
+
+// 手势模式叠加写表(切回)—— 逐字节抄自 RevEng_PAJ7620 的
+// setGestureModeRegisterArray 里"进出模式必写"的那几项(禁用/重开中断 + bank1
+// 朝向/模式寄存器);其余寄存器与本驱动 219 组出厂表里的默认值本就一致(交叉核实
+// 时逐项比对过,数值相同),不必重复写。
+static const uint8_t s_gesture_mode_regs[][2] = {
+    {0xEF,0x00},
+    {0x41,0x00}, {0x42,0x00},
+    {0xEF,0x01},
+    {0x04,0x02},
+    {0x74,0x00},
+    {0xEF,0x00},
+    {0x41,0xFF}, {0x42,0x01},
+};
+
 static esp_err_t write_reg(uint8_t reg, uint8_t val)
 {
     uint8_t buf[2] = { reg, val };
     return i2c_master_transmit(s_dev, buf, 2, I2C_TIMEOUT_MS);
+}
+
+static esp_err_t write_reg_array(const uint8_t (*regs)[2], size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        esp_err_t err = write_reg(regs[i][0], regs[i][1]);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
 }
 
 // 两笔独立事务:先写寄存器号(STOP),再单独发起读 —— 不用 i2c_master_transmit_receive
@@ -170,5 +226,73 @@ esp_err_t unit_gesture_read(gesture_event_t *out)
         case 0x80: *out = GESTURE_COUNTER_CLOCKWISE; break;
         default:   *out = GESTURE_NONE;              break;   // 0 或多位同时置位(罕见过渡态)
     }
+    return ESP_OK;
+}
+
+esp_err_t unit_gesture_set_cursor_mode(void)
+{
+    if (!s_dev) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = write_reg_array(s_cursor_mode_regs,
+                                     sizeof(s_cursor_mode_regs) / sizeof(s_cursor_mode_regs[0]));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Gesture 切光标模式失败(%s)", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "Gesture 已切入光标模式");
+    return ESP_OK;
+}
+
+esp_err_t unit_gesture_set_gesture_mode(void)
+{
+    if (!s_dev) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = write_reg_array(s_gesture_mode_regs,
+                                     sizeof(s_gesture_mode_regs) / sizeof(s_gesture_mode_regs[0]));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Gesture 切回手势模式失败(%s)", esp_err_to_name(err));
+        return err;
+    }
+    ESP_LOGI(TAG, "Gesture 已切回手势模式");
+    return ESP_OK;
+}
+
+esp_err_t unit_gesture_read_cursor(uint16_t *x, uint16_t *y, bool *in_view)
+{
+    if (!s_dev) return ESP_ERR_INVALID_STATE;
+    if (!x || !y || !in_view) return ESP_ERR_INVALID_ARG;
+
+    uint8_t xb[2], yb[2], intb;
+    esp_err_t err = read_regs(REG_CURSOR_X_LOW, xb, 2);   // 0x3B + 0x3C(自增地址)
+    if (err != ESP_OK) return err;
+    err = read_regs(REG_CURSOR_Y_LOW, yb, 2);             // 0x3D + 0x3E
+    if (err != ESP_OK) return err;
+    err = read_regs(REG_CURSOR_INT, &intb, 1);            // 0x44
+    if (err != ESP_OK) return err;
+
+    *x = ((uint16_t)(xb[1] & 0x0F) << 8) | xb[0];
+    *y = ((uint16_t)(yb[1] & 0x0F) << 8) | yb[0];
+
+    // 精确匹配(Confirmed via RevEng_PAJ7620 isCursorInView()):既非 0x04 也非 0x80
+    // 的过渡态一律判 false,不按位或宽容判断。
+    *in_view = (intb == CUR_HAS_OBJECT);
+    return ESP_OK;
+}
+
+esp_err_t unit_gesture_read_presence(uint8_t *brightness, uint16_t *size)
+{
+    if (!s_dev) return ESP_ERR_INVALID_STATE;
+    if (!brightness || !size) return ESP_ERR_INVALID_ARG;
+
+    uint8_t b;
+    esp_err_t err = read_regs(REG_OBJ_BRIGHTNESS, &b, 1);
+    if (err != ESP_OK) return err;
+
+    uint8_t sz[2];
+    err = read_regs(REG_OBJ_SIZE_LSB, sz, 2);   // 0xB1 + 0xB2(自增地址)
+    if (err != ESP_OK) return err;
+
+    *brightness = b;
+    // MSB 头文件原注释是 [3:0],参考实现未遮罩(硬件保证高位为 0);本驱动按防御性
+    // 写法遮罩 &0x0F,与光标 X/Y 的遮罩手法一致(见头文件"在场信号"核实记录第 1 条)。
+    *size = ((uint16_t)(sz[1] & 0x0F) << 8) | sz[0];
     return ESP_OK;
 }

@@ -1,12 +1,23 @@
-// magic_wand —— 主任务:轮询手势、派发法术(spellbook 数据表)、省电挂载、单元容错
+// magic_wand v2.1「魔法萤火虫」(Plan B:在场+手势)—— 主任务:在场/手势轮询 →
+// 在场信号 EMA/迟滞/档位(本文件)→ 盘旋推进/翻滚派发(firefly.c 内)→ 状态机 →
+// 省电/容错(SPEC.md §3/§4/§7,30Hz)。
 //
-// 状态机(SPEC.md §3 的简化落地——IDLE_READY/CASTING/SHIMMER 在实现里合并成一个
-// ST_READY,区分靠局部计时器而非独立顶层状态,观感与 SPEC 一致):
-//   ST_NO_UNIT ──(Gesture 单元 init 成功)──► ST_READY
-//   ST_READY   ──(手势分类成功,§5 表)──► 派发全部反馈通道,立即回 ST_READY(可打断)
-//              ──(SHIMMER_IDLE_MS 内无手势)──► 退化低频 ping(§4 点 2,无独立信号)
-//              ──(法术书 9 页集满)──► ST_PARTY
-//   ST_PARTY   ──(9 步回放完)──► spellbook 清零 → ST_READY
+// v2 的"光标模式连续跟手"已实机否决(157s 实测占空比 ~50%、31 次中断,SPEC §0),
+// 本文件是 v2.1 的重写:不再有连续坐标,改为"在场信号(0xB0 亮度)驱动贴玻璃盘旋
+// 强度 + 九手势离散事件驱动方向翻滚"。
+//
+// 状态机(SPEC §3):
+//   ST_NO_UNIT  ──(Gesture 接管成功,默认手势模式)──► ST_SEEK
+//     ▲(拔线/连续读失败 ERR_STREAK_LOST)──────────────────┘
+//   ST_SEEK     萤火虫停在家花、慢眨眼 ──(在场信号 ON,迟滞后)──► ST_DANCE(+ 可能「你好」)
+//   ST_DANCE    贴玻璃盘旋(强度三档随在场信号档位)+ 手势→方向翻滚 + 近距音阶
+//               ──(在场信号 OFF 且保持 PRES_HOLD_MS 耗尽)──► 挥手再见 → ST_GOING_HOME
+//               保持期内(OFF 但未耗尽)舞照跳,强制降到最低档,不 kick、不算离场。
+//   ST_GOING_HOME 回家动画(HOME_FLY_MS)──(自然播完)──► ST_SEEK
+//               ──(途中在场信号重新 ON)──► 掐动画,立即回 ST_DANCE
+//   省电三态正交:非 AWAKE 冻结一切动画与判定;NAP 中 5V 在,在场/手势可唤醒
+//   (唤醒帧不判定,仿 busy_knobs 先例);DEEP 断 5V→单元复位,唤醒后重新
+//   unit_gesture_init()(默认落在手势模式,无需再切模式)。
 #include "magic_wand.h"
 
 #include "freertos/FreeRTOS.h"
@@ -24,18 +35,21 @@
 #include "ledstrip_fx.h"
 #include "unit_gesture.h"
 
-#include "spellbook.h"
-#include "wand_fx.h"
-#include "wizard.h"
+#include "firefly.h"
+#include "garden.h"
 
 #include "tuning.h"
 
 static const char *TAG = "magic_wand";
 
-#define HINT_CARD       0xFFFFFF
-#define PARTY_INTRO_MS  1200   // 派对开场欢跳(wizard_party_begin 的 3 跳 ≈ 1200ms)
+#define HINT_CARD  0xFFFFFF
 
-typedef enum { ST_NO_UNIT = 0, ST_READY, ST_PARTY } wand_state_t;
+// 手势音签播放期间近距音阶让位(SPEC §5.1):触发一个手势音签后这段时间内不响
+// 档位变化的近距音阶。四音签(~4*55ms)封顶,留一点余量;纯实现细节,不在
+// SPEC §10 tuning.h 列表(仿 firefly.c 外观常量的先例)。
+#define GESTURE_AUDIO_YIELD_MS 300
+
+typedef enum { ST_NO_UNIT = 0, ST_SEEK, ST_DANCE, ST_GOING_HOME } wand_state_t;
 
 static wand_state_t s_state;
 
@@ -43,23 +57,26 @@ static bool s_unit_ok;
 static int  s_retry_frames;
 static int  s_retry_count;
 static int  s_err_streak;
-static int  s_poll_accum_ms;
 
-static uint32_t        s_now_ms;          // 本局累计运行时长(帧 delay_ms 累加,非真实墙钟)
-static gesture_event_t s_last_gesture = GESTURE_NONE;
-static uint32_t        s_last_gesture_ms;
-static uint32_t        s_last_activity_ms;   // 距上次"有动静"多久(驱动退化 SHIMMER ping)
+static uint32_t s_now_ms;          // 本局累计运行时长(帧 delay_ms 累加,非真实墙钟)
 
-static bool     s_pending_reveal;         // 躲猫咒:视觉先播(内部自带停顿),音/震/灯/魔法棒延后到揭晓
-static uint32_t s_pending_reveal_at_ms;
+// ── 在场信号(SPEC §4.1)────────────────────────────────────────────────────
+static bool     s_pres_ema_init;
+static float    s_pres_ema;
+static bool     s_pres_on;         // 迟滞开关后的在场状态
+static int      s_level = 1;       // 强度档 1/2/3(远/中/近)
+static bool     s_ever_seen;       // 本局是否曾经见过在场信号(首次入场必触发「你好」)
+static uint32_t s_lost_since_ms;   // 最近一次"在场→离场"边沿的时刻(兼作保持期起点)
 
-static int s_party_phase;                 // 0=开场倒计时;1..SPELLBOOK_SIZE=已放到第几步;之后收场
-static int s_party_accum_ms;
+// ── 手势翻滚冷却(SPEC §4.2)────────────────────────────────────────────────
+static uint32_t s_tumble_last_ms[GESTURE_WAVE + 1];   // 按 gesture_event_t 索引
+static uint32_t s_gesture_audio_yield_until_ms;
 
 static core2_sleep_t       s_sleep;
 static core2_sleep_stage_t s_prev_stage = CORE2_SLEEP_AWAKE;
 
 static lv_obj_t *s_plug_hint;
+static lv_obj_t *s_hint_hand;
 
 // ── 小工具 ───────────────────────────────────────────────────────────────
 static lv_obj_t *plain(lv_obj_t *parent, int w, int h, uint32_t color, int radius)
@@ -74,22 +91,77 @@ static lv_obj_t *plain(lv_obj_t *parent, int w, int h, uint32_t color, int radiu
     return o;
 }
 
-// ── UI:场景 + 法术书 + 无字提示卡(仅一次,进场画;之后只改状态)────────────
+static void anim_set_x(void *o, int32_t v) { lv_obj_set_x((lv_obj_t *)o, v); }
+
+#if CALIB_LOG
+static const char *state_name(wand_state_t s)
+{
+    switch (s) {
+        case ST_NO_UNIT:    return "NO_UNIT";
+        case ST_SEEK:       return "SEEK";
+        case ST_DANCE:      return "DANCE";
+        case ST_GOING_HOME: return "GOING_HOME";
+        default:            return "?";
+    }
+}
+#endif
+
+// ── 在场强度档位(迟滞:粘住原档,防蹦档,SPEC §4.1)──────────────────────────
+static int level_from_ema(int prev, float ema)
+{
+    int lvl = (ema >= PRES_LVL3_TH) ? 3 : (ema >= PRES_LVL2_TH) ? 2 : 1;
+    if (prev == 3 && lvl < 3 && ema >= PRES_LVL3_TH - PRES_LVL_HYST) lvl = 3;
+    if (prev >= 2 && lvl < 2 && ema >= PRES_LVL2_TH - PRES_LVL_HYST) lvl = 2;
+    return lvl;
+}
+
+static uint16_t level_note(int lvl)
+{
+    switch (lvl) {
+        case 1:  return 523;
+        case 2:  return 659;
+        default: return 784;
+    }
+}
+
+// ── UI:无字提示卡(P4 灯笼未接入,pictogram 只画 Gesture 单元 + 一只挥动的手)──────
 static void make_plug_hint(lv_obj_t *scr)
 {
-    // 无字提示卡:手势单元(方块+镜头圆)+ 引线 + 插头。给家长看"去插 Gesture"
-    lv_obj_t *card = plain(scr, 132, 76, HINT_CARD, 14);
+    lv_obj_t *card = plain(scr, 132, 86, HINT_CARD, 14);
     lv_obj_align(card, LV_ALIGN_CENTER, 0, 30);
+
     lv_obj_t *sensor = plain(card, 46, 40, 0x8060C0, 8);
-    lv_obj_align(sensor, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_align(sensor, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_obj_t *lens = plain(sensor, 18, 18, 0xE8E0FF, LV_RADIUS_CIRCLE);
     lv_obj_align(lens, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *wire = plain(card, 30, 4, 0x3A3A38, 2);
-    lv_obj_align(wire, LV_ALIGN_LEFT_MID, 62, 0);
-    lv_obj_t *plug = plain(card, 16, 22, 0x3A3A38, 4);
-    lv_obj_align(plug, LV_ALIGN_LEFT_MID, 96, 0);
+
+    // 一只手在方块上方(两帧交替左右挥,path_step 离散跳变,不做缓动)
+    lv_obj_t *hand = plain(card, 26, 18, 0xE0AD7A, 8);
+    lv_obj_align(hand, LV_ALIGN_TOP_MID, -14, 8);
+    s_hint_hand = hand;
+
     s_plug_hint = card;
     lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void hint_hand_wave(bool on)
+{
+    bsp_display_lock(0);
+    lv_anim_delete(s_hint_hand, anim_set_x);
+    if (on) {
+        int x0 = lv_obj_get_x(s_hint_hand);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, s_hint_hand);
+        lv_anim_set_exec_cb(&a, anim_set_x);
+        lv_anim_set_values(&a, x0, x0 + 28);
+        lv_anim_set_duration(&a, 480);
+        lv_anim_set_playback_duration(&a, 480);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_path_cb(&a, lv_anim_path_step);   // 离散两帧交替
+        lv_anim_start(&a);
+    }
+    bsp_display_unlock();
 }
 
 static void plug_hint_show(bool show)
@@ -98,6 +170,7 @@ static void plug_hint_show(bool show)
     if (show) lv_obj_remove_flag(s_plug_hint, LV_OBJ_FLAG_HIDDEN);
     else      lv_obj_add_flag(s_plug_hint, LV_OBJ_FLAG_HIDDEN);
     bsp_display_unlock();
+    hint_hand_wave(show);
 }
 
 static void ui_create(void)
@@ -105,11 +178,10 @@ static void ui_create(void)
     lv_obj_t *scr;
     bsp_display_lock(0);
     scr = lv_screen_active();
-    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     bsp_display_unlock();
 
-    wizard_scene_create(scr);   // 自带锁
-    spellbook_create(scr);      // 自带锁
+    garden_create(scr);                                     // 自带锁,静态层画一次
+    firefly_create(scr, GARDEN_HOME_X, GARDEN_HOME_Y);       // 自带锁
 
     bsp_display_lock(0);
     make_plug_hint(scr);
@@ -120,15 +192,21 @@ static void ui_create(void)
 static bool unit_attach(bool greet)
 {
     if (unit_gesture_init(core2_board_port_a(), 0) != ESP_OK) return false;
-    s_err_streak = 0;
-    s_unit_ok    = true;
-    s_state      = ST_READY;
+    // v2.1:默认落在手势模式即可用(9 手势 + 在场信号都在 bank0),不再调
+    // unit_gesture_set_cursor_mode()(光标模式已实机否决,见 SPEC §0)。
+    s_err_streak    = 0;
+    s_unit_ok       = true;
+    s_state         = ST_SEEK;
+    s_pres_on       = false;
+    s_pres_ema_init = false;
+    s_level         = 1;
+    firefly_enter_seek();
     plug_hint_show(false);
     if (greet) {
         audio_fx_play(SND_HELLO);
         haptics_play(HAPTIC_HELLO);
     }
-    ESP_LOGI(TAG, "Gesture 已接管");
+    ESP_LOGI(TAG, "Gesture 已接管(手势模式)");
     return true;
 }
 
@@ -142,82 +220,71 @@ static void unit_lost(void)
     ESP_LOGW(TAG, "Gesture 失联(拔线/断电?),转入重试探测");
 }
 
-// ── 退化 SHIMMER:固定低频存活性 ping(无"在场未分类"信号,见 unit_gesture.h)──
-static void maybe_shimmer(void)
+// ── 九手势 → 方向翻滚派发(仅 ST_DANCE 内消费,SPEC §4.2)────────────────────
+static void dispatch_gesture(gesture_event_t g)
 {
-    if (s_now_ms - s_last_activity_ms < SHIMMER_IDLE_MS) return;
-    s_last_activity_ms = s_now_ms;
-    wizard_shimmer();
-    wand_fx_trigger(WAND_FX_SHIMMER);
-    audio_fx_play_notes((audio_note_t[]){ { 1400, 20, 25 } }, 1);
-    // 注:不调 core2_sleep_kick——这是"魔法一直在待命"的装饰性 ping,不代表真的有人在
-    // 玩,踢一下会让打盹永不发生(违反 §7 打盹判据只看机身动作的精神)。
-}
+    if (g == GESTURE_NONE || g < 0 || g > GESTURE_WAVE) return;
+    if (s_now_ms - s_tumble_last_ms[g] < TUMBLE_COOLDOWN_MS) return;   // 同方向冷却
+    s_tumble_last_ms[g] = s_now_ms;
 
-// ── 一次手势分类成功 ─────────────────────────────────────────────────────
-static void fan_out(const spell_def_t *def)
-{
-    audio_fx_play_notes(def->notes, def->note_count);
-    haptics_play(def->haptic);
-    ledstrip_fx_trigger(def->led_fx);
-    wand_fx_trigger(def->wand_fx);
-}
-
-static void handle_gesture(gesture_event_t g)
-{
-    s_last_activity_ms = s_now_ms;
-
-    bool recast = (g == s_last_gesture) && (s_now_ms - s_last_gesture_ms < RECAST_COOLDOWN_MS);
-    s_last_gesture    = g;
-    s_last_gesture_ms = s_now_ms;
-
-    const spell_def_t *def = spellbook_spell_def(g);
-    if (!def) return;
-
-    if (recast) {
-        // 冷却窗口内的重复触发:轻量重复,不进书页/连击判定(SPEC.md §4 点 3)。
-        wizard_cast_light(g);
-        fan_out(def);
+    switch (g) {
+    case GESTURE_LEFT:
+        firefly_tumble_left();
+        audio_fx_play_notes((audio_note_t[]){ { 392, 50, 45 }, { 523, 50, 45 } }, 2);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_RIGHT:
+        firefly_tumble_right();
+        audio_fx_play_notes((audio_note_t[]){ { 523, 50, 45 }, { 392, 50, 45 } }, 2);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_UP:
+        firefly_tumble_up();
+        audio_fx_play_notes((audio_note_t[]){ { 523, 40, 45 }, { 659, 40, 45 }, { 784, 50, 45 } }, 3);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_DOWN:
+        firefly_tumble_down();
+        audio_fx_play_notes((audio_note_t[]){ { 784, 40, 45 }, { 659, 40, 45 }, { 523, 50, 45 } }, 3);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_FORWARD:
+        firefly_tumble_forward();
+        audio_fx_play_notes((audio_note_t[]){ { 440, 30, 50 }, { 880, 60, 55 } }, 2);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_BACKWARD:
+        firefly_tumble_backward();
+        audio_fx_play_notes((audio_note_t[]){ { 440, 40, 45 }, { 330, 80, 40 } }, 2);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_CLOCKWISE:
+        firefly_tumble_cw();
+        audio_fx_play_notes((audio_note_t[]){ { 523, 35, 45 }, { 659, 35, 45 }, { 784, 35, 45 }, { 988, 45, 50 } }, 4);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_COUNTER_CLOCKWISE:
+        firefly_tumble_ccw();
+        audio_fx_play_notes((audio_note_t[]){ { 988, 35, 45 }, { 784, 35, 45 }, { 659, 35, 45 }, { 523, 45, 50 } }, 4);
+        haptics_play(HAPTIC_BUMP_LIGHT);
+        break;
+    case GESTURE_WAVE:
+        firefly_tumble_wave();
+        audio_fx_play_notes((audio_note_t[]){ { 659, 45, 50 }, { 784, 45, 50 }, { 659, 45, 50 }, { 880, 60, 55 } }, 4);
+        haptics_play(HAPTIC_COLLECT);
+        break;
+    default:
         return;
     }
-
-    wizard_cast(g);
-    if (g == GESTURE_BACKWARD) {
-        // 躲猫咒:视觉自带 PEEK_HOLD_MS 停顿+回弹,音/震/灯/魔法棒延后到"揭晓"瞬间
-        // 一起打出(呼应 peekaboo 揭晓手感),由 pending_reveal_tick() 接手。
-        s_pending_reveal    = true;
-        s_pending_reveal_at_ms = s_now_ms + PEEK_HOLD_MS;
-    } else {
-        fan_out(def);
-    }
-
-    // 连击彩蛋(P3)判定在手势分类成功之后、法术书首遇点亮之前(SPEC.md §7 点 2)。
-    spellbook_combo_feed(g, s_now_ms);
-    if (spellbook_combo_check(s_now_ms)) {
-        wizard_hidden_spell();
-        audio_fx_play(SND_WIN);
-        haptics_play(HAPTIC_WIN);
-        ledstrip_fx_trigger(LED_FX_WIN);
-    }
-
-    bool first_unlock = spellbook_unlock(g);
-    if (first_unlock) {
-        audio_fx_play(SND_COLLECT);
-        haptics_play(HAPTIC_COLLECT);
-    }
-    if (spellbook_is_complete()) {
-        s_state = ST_PARTY;
-        s_party_phase = 0;
-        s_party_accum_ms = 0;
-        wizard_party_begin();
-    }
+    s_gesture_audio_yield_until_ms = s_now_ms + GESTURE_AUDIO_YIELD_MS;
+    core2_sleep_kick(&s_sleep);   // 手势分类成功 = 有人在玩(SPEC §7)
 }
 
-// ── 手势轮询(仿 feed_monster poll_sonic 的接管/重试骨架)──────────────────
-static void poll_gesture(core2_sleep_stage_t stage)
+// ── 在场/手势轮询(仿 feed_monster poll_sonic 的接管/重试骨架)──────────────
+static void poll_presence(core2_sleep_stage_t stage)
 {
     if (!s_unit_ok) {
-        if (++s_retry_frames >= ATTACH_RETRY_MS / GESTURE_POLL_MS) {
+        if (++s_retry_frames >= ATTACH_RETRY_MS / PRES_POLL_MS) {
             s_retry_frames = 0;
             if (unit_attach(true)) {
                 s_retry_count = 0;
@@ -228,80 +295,108 @@ static void poll_gesture(core2_sleep_stage_t stage)
         }
         return;
     }
-    if (s_state == ST_PARTY) return;   // 派对期间手势输入被忽略(SPEC.md §3)
 
-    gesture_event_t g;
-    esp_err_t r = unit_gesture_read(&g);
-    if (r != ESP_OK) {
+    uint8_t  brightness = 0;
+    uint16_t size = 0;
+    gesture_event_t gesture = GESTURE_NONE;
+    esp_err_t r_pres = unit_gesture_read_presence(&brightness, &size);
+    esp_err_t r_ges  = unit_gesture_read(&gesture);
+
+    // 每帧轮询两样(在场 + 手势),两者都读失败才算拔线(见任务纪律)。
+    if (r_pres != ESP_OK && r_ges != ESP_OK) {
         if (++s_err_streak >= ERR_STREAK_LOST) unit_lost();
         return;
     }
     s_err_streak = 0;
+    if (r_ges != ESP_OK) gesture = GESTURE_NONE;
 
-    if (g == GESTURE_NONE) {
-        if (stage == CORE2_SLEEP_AWAKE) maybe_shimmer();
+    bool pres_valid = (r_pres == ESP_OK);
+    if (pres_valid) {
+        if (!s_pres_ema_init) {
+            s_pres_ema = brightness;
+            s_pres_ema_init = true;
+        } else {
+            s_pres_ema += (brightness - s_pres_ema) * (PRES_EMA_PCT / 100.0f);
+        }
+    }
+
+#if CALIB_LOG
+    // 标定日志(SPEC §9/§13):每 ~300ms 打一行,回填 tuning.h 的 PRES_* 阈值后
+    // 置 CALIB_LOG=0 重编。寄存器语义未标定,这里只打印读数,不做任何"确定"断言。
+    {
+        static uint32_t last_log_ms;
+        if (s_now_ms - last_log_ms >= 300) {
+            last_log_ms = s_now_ms;
+            ESP_LOGI(TAG, "CALIB pres raw=%u ema=%u size=%u lvl=%d state=%s",
+                     brightness, (unsigned)s_pres_ema, size, s_level, state_name(s_state));
+        }
+    }
+#endif
+
+    if (!pres_valid) {
+        // 只有手势读到了:在场沿用上一帧判定,不重复走迟滞;手势该消费还消费。
+        if (stage == CORE2_SLEEP_AWAKE && s_state == ST_DANCE) dispatch_gesture(gesture);
         return;
     }
 
-    // 有手势信号(不论休眠态是否要正式判定):都算"有人在玩",顶住/唤醒。
-    core2_sleep_kick(&s_sleep);
-    if (stage != CORE2_SLEEP_AWAKE) {
-        core2_sleep_wake(&s_sleep);
-        return;   // 只当唤醒信号,不判定法术(仿 busy_knobs 小鸟先例)
+    bool was_on = s_pres_on;
+    if (!s_pres_on && s_pres_ema >= PRES_ON_TH)      s_pres_on = true;
+    else if (s_pres_on && s_pres_ema <= PRES_OFF_TH) s_pres_on = false;
+
+    if (s_pres_on) {
+        // 真实的手在场 = 有人在玩,顶住/唤醒(SPEC §7)。
+        core2_sleep_kick(&s_sleep);
+        if (stage != CORE2_SLEEP_AWAKE) {
+            core2_sleep_wake(&s_sleep);
+            return;   // 唤醒帧不判定(仿 busy_knobs 先例),下一帧才正式进状态机
+        }
+    }
+    if (stage != CORE2_SLEEP_AWAKE) return;   // 非清醒态不判定状态机
+
+    bool rising_edge  = (!was_on && s_pres_on);
+    bool falling_edge = (was_on && !s_pres_on);
+    if (falling_edge) s_lost_since_ms = s_now_ms;   // 兼作"保持期起点"与"「你好」间隔起点"
+
+    if (rising_edge) {
+        bool hello = !s_ever_seen || (s_now_ms - s_lost_since_ms >= HELLO_GAP_MS);
+        s_ever_seen = true;
+
+        if (s_state == ST_GOING_HOME) firefly_go_home_interrupt();
+        firefly_enter_dance();
+        s_state = ST_DANCE;
+
+        if (hello) {
+            audio_fx_play_notes((audio_note_t[]){ { 659, 40, 50 }, { 880, 60, 55 } }, 2);
+            haptics_play(HAPTIC_HELLO);
+            ESP_LOGI(TAG, "「你好」时刻");
+        }
     }
 
-    handle_gesture(g);
-}
+    if (s_state != ST_DANCE) return;
 
-// ── 躲猫咒延迟揭晓 ───────────────────────────────────────────────────────
-static void pending_reveal_tick(void)
-{
-    if (!s_pending_reveal) return;
-    if ((int32_t)(s_now_ms - s_pending_reveal_at_ms) < 0) return;
-    s_pending_reveal = false;
-    fan_out(spellbook_spell_def(GESTURE_BACKWARD));
-}
+    int lvl = s_pres_on ? level_from_ema(s_level, s_pres_ema) : 1;   // 保持期强制最低档
+    if (lvl != s_level) {
+        s_level = lvl;
+        if (s_now_ms >= s_gesture_audio_yield_until_ms) {   // 手势音签播放期间让位
+            uint16_t note = level_note(lvl);
+            audio_fx_play_notes((audio_note_t[]){ { note, 40, 35 } }, 1);
+        }
+    }
 
-// ── 法术大派对:9 步接力回放(压缩版,略去停顿类细节)─────────────────────
-static void fire_party_step(int step_idx)
-{
-    gesture_event_t g = SPELL_ORDER[step_idx];
-    wizard_party_step(g);
-    fan_out(spellbook_spell_def(g));
-}
-
-static void party_tick(int delay_ms)
-{
-    s_party_accum_ms += delay_ms;
-    if (s_party_phase == 0) {
-        if (s_party_accum_ms < PARTY_INTRO_MS) return;
-        s_party_accum_ms = 0;
-        s_party_phase = 1;
-        fire_party_step(0);
+    if (!s_pres_on && (s_now_ms - s_lost_since_ms >= PRES_HOLD_MS)) {
+        // 离场保持耗尽:挥手再见(复用 WAVE 翻滚)+ 降双音(无震)→ 回家
+        firefly_tumble_wave();
+        audio_fx_play_notes((audio_note_t[]){ { 880, 50, 45 }, { 659, 60, 45 } }, 2);
+        firefly_go_home_start();
+        s_state = ST_GOING_HOME;
+        ESP_LOGI(TAG, "离场保持耗尽,回家");
         return;
     }
-    if (s_party_accum_ms < PARTY_STEP_MS) return;
-    s_party_accum_ms = 0;
 
-    if (s_party_phase < SPELLBOOK_SIZE) {
-        fire_party_step(s_party_phase);
-        s_party_phase++;
-        return;
-    }
-
-    // 9 步放完:收场
-    wizard_party_end();
-    spellbook_reset();
-    audio_fx_play(SND_WIN);
-    haptics_play(HAPTIC_WIN);
-    ledstrip_fx_trigger(LED_FX_WIN);
-    s_state = ST_READY;
-    s_last_gesture = GESTURE_NONE;
-    s_last_activity_ms = s_now_ms;
-    ESP_LOGI(TAG, "法术大派对结束,法术书清零开新一轮");
+    dispatch_gesture(gesture);
 }
 
-// ── 主任务(帧周期随 core2_sleep 建议值走,清醒态 ~60Hz)────────────────────
+// ── 主任务(30Hz,SPEC §8)──────────────────────────────────────────────
 static void game_task(void *arg)
 {
     TickType_t last = xTaskGetTickCount();
@@ -310,38 +405,36 @@ static void game_task(void *arg)
         imu_accel_t acc;
         bool have = (imu_mpu6886_read_accel(&acc) == ESP_OK);
 
-        int delay_ms = core2_sleep_feed(&s_sleep,
-                                        have ? (float[]){ acc.x, acc.y, acc.z } : NULL,
-                                        s_state == ST_READY && have);
+        int delay_ms = core2_sleep_feed(&s_sleep, have ? (float[]){ acc.x, acc.y, acc.z } : NULL, have);
         core2_sleep_stage_t stage = core2_sleep_stage(&s_sleep);
         s_now_ms += (uint32_t)delay_ms;
 
-        // 深度省电切过 M-Bus 5V → Gesture/RGB 单元掉电复位:醒来后重新接管
+        // 深度省电切过 M-Bus 5V → Gesture 单元掉电复位:醒来后重新接管(默认手势模式)
         if (s_prev_stage == CORE2_SLEEP_DEEP && stage != CORE2_SLEEP_DEEP) {
             s_unit_ok = false;
             unit_attach(false);
-            wand_fx_start();
         }
-        // 唤醒(NAP/DEEP → AWAKE):不续用休眠前的冷却计时(仿 busy_knobs 小鸟先例)
+        // 唤醒(NAP/DEEP → AWAKE):回 SEEK 重新判定(仿 busy_knobs 先例)
         if (s_prev_stage != CORE2_SLEEP_AWAKE && stage == CORE2_SLEEP_AWAKE) {
-            s_last_gesture      = GESTURE_NONE;
-            s_last_activity_ms  = s_now_ms;
-            s_pending_reveal    = false;
+            s_state   = ST_SEEK;
+            s_pres_on = false;
+            s_pres_ema_init = false;
+            firefly_enter_seek();
+        }
+        // 入睡(AWAKE → NAP/DEEP):冻结外观动画(SPEC §3:非 AWAKE 冻结一切动画/判定)
+        if (s_prev_stage == CORE2_SLEEP_AWAKE && stage != CORE2_SLEEP_AWAKE) {
+            firefly_freeze();
         }
         s_prev_stage = stage;
 
-        if (stage != CORE2_SLEEP_DEEP) {
-            s_poll_accum_ms += delay_ms;
-            if (s_poll_accum_ms >= GESTURE_POLL_MS) {
-                s_poll_accum_ms = 0;
-                poll_gesture(stage);
-            }
-        }
+        if (stage != CORE2_SLEEP_DEEP) poll_presence(stage);
 
-        // CASTING/SHIMMER/法术书装饰动画只在 AWAKE 跑(SPEC.md §7 点 4)。
         if (stage == CORE2_SLEEP_AWAKE) {
-            pending_reveal_tick();
-            if (s_state == ST_PARTY) party_tick(delay_ms);
+            if (s_state == ST_DANCE) firefly_dance_advance((uint32_t)delay_ms, s_level);
+            if (s_state == ST_GOING_HOME && firefly_go_home_is_done()) {
+                s_state = ST_SEEK;
+            }
+            firefly_tick();
         }
 
         vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
@@ -353,10 +446,10 @@ void magic_wand_start(void)
     ui_create();
 
     core2_sleep_cfg_t scfg = CORE2_SLEEP_CFG_DEFAULT;
+    scfg.frame_ms = PRES_POLL_MS;   // 30Hz,与在场轮询同拍(SPEC §8/§10)
     core2_sleep_init(&s_sleep, &scfg);
 
     ledstrip_fx_set_base(LED_BASE_AMBIENT);
-    wand_fx_start();   // P4:RGB 单元缺席不阻塞启动(SPEC.md §13)
 
     bool attached = unit_attach(false);
     if (!attached) {
@@ -378,9 +471,5 @@ void magic_wand_start(void)
         audio_fx_play(SND_BUMP_MED);
     }
 
-    s_last_activity_ms = 0;
-
-    // 栈:施法状态/法术书/魔法棒特效变多,直接从 SPEC.md §11 建议的上限 5120 起
-    // (而不是其它 app 常用的 4096),省一轮"栈告警再调大"的实机往返。
-    xTaskCreate(game_task, "magicwand", 5120, NULL, 5, NULL);
+    xTaskCreate(game_task, "magicwand", 4096, NULL, 5, NULL);
 }

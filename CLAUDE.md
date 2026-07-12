@@ -40,7 +40,7 @@
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批(玩偶造型+金星彩蛋)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
-| **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
+| **magic_wand** 魔法萤火虫 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏸️ 暂停:v1 九法术否决 → v2 光标跟手实机否决(占空比 50%)→ v2.1 在场+手势重写,P1 已烧录、在场信号标定通过,但整体体感欠佳(2026-07-11),暂不推进;P2–P4 未做 | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
@@ -367,7 +367,7 @@ components/
 | **peekaboo** 躲猫猫昼夜屋 | ota_2 | DLight | 🔄 v1 实机试玩偏单调 → v2「夜里来客」重写(见 SPEC) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | ota_3 | 超声波 | ⏳ build 通过,待烧录 | `apps/feed_monster/README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批(玩偶造型+金星彩蛋)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
-| **magic_wand** 隔空魔法棒 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏳ P1–P4 全量实现,build 通过,待烧录(P1 命中率待验) | `apps/magic_wand/SPEC.md` + `README.md` |
+| **magic_wand** 魔法萤火虫 | ota_5 | Gesture(PAJ7620U2)+ RGB(P4) | ⏸️ 暂停:v1 九法术否决 → v2 光标跟手实机否决(占空比 50%)→ v2.1 在场+手势重写,P1 已烧录、在场信号标定通过,但整体体感欠佳(2026-07-11),暂不推进;P2–P4 未做 | `apps/magic_wand/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ⏳ build 通过,待实机 | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
