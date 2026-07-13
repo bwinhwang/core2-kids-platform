@@ -39,10 +39,11 @@
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批(玩偶造型+金星彩蛋)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
+| **busy_bus** 小小巴士 | ota_3(原 feed_monster 槽,2026-07-12 回收) | Chain 摇杆(UART) | 🔄 P1+P2+P3 代码一次性写完,编译通过,**待单刷实机验证**(P1 车感是最大未知) | `apps/busy_bus/SPEC.md` + `README.md` |
 | **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
-| **feed_monster** 喂怪兽 | ota_3(回收候选) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
+| **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
 | **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ⏳ 已烧录(2026-07-12 随 chick_pour 专属图标重刷),待验收 | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ⏳ 已加 busy_bus 专属图标分支(本地编译通过),待重刷上机 | `launcher/README.md` |
 
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
 > 组件复用指南见 `docs/platform/BSP_GUIDE.md`。
@@ -367,9 +368,10 @@ components/
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批(玩偶造型+金星彩蛋)⏳ 待烧录 | `apps/chain_lab/SPEC.md` + `README.md` |
+| **busy_bus** 小小巴士 | ota_3(原 feed_monster 槽,2026-07-12 回收) | Chain 摇杆(UART) | 🔄 P1+P2+P3 代码一次性写完,编译通过,**待单刷实机验证**(P1 车感是最大未知) | `apps/busy_bus/SPEC.md` + `README.md` |
 | **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
-| **feed_monster** 喂怪兽 | ota_3(回收候选) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
+| **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
 | **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ⏳ 已烧录(2026-07-12 随 chick_pour 专属图标重刷),待验收 | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ⏳ 已加 busy_bus 专属图标分支(本地编译通过),待重刷上机 | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。

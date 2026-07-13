@@ -16,6 +16,7 @@ declare -A SLOT=(
     [peekaboo]=0x590000
     [chick_pour]=0x590000
     [feed_monster]=0x790000
+    [busy_bus]=0x790000
     [chain_lab]=0x990000
     [magic_wand]=0xB90000
 )

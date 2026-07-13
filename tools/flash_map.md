@@ -13,7 +13,8 @@
 | ota_1 | `0x390000` | busy_knobs 旋钮忙碌台(8Encoder) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x390000 apps/busy_knobs/build/busy_knobs.bin` |
 | ota_2 | `0x590000` | peekaboo 躲猫猫昼夜屋(DLight,2026-07-12 槽位已回收给 chick_pour,见下一行) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/peekaboo/build/peekaboo.bin` |
 | ota_2 | `0x590000` | chick_pour 小鸡回窝(IMU,P2 归家闭环已烧录) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/chick_pour/build/chick_pour.bin` |
-| ota_3 | `0x790000` | feed_monster 喂怪兽(超声波;📦 2026-07-12 封存,槽位回收候选 → busy_bus 等新卡带) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/feed_monster/build/feed_monster.bin` |
+| ota_3 | `0x790000` | feed_monster 喂怪兽(超声波;📦 2026-07-12 封存,槽位已回收给 busy_bus,见下一行) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/feed_monster/build/feed_monster.bin` |
+| ota_3 | `0x790000` | busy_bus 小小巴士(Chain 摇杆,立项批 2026-07-12,P1 车感验证中) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/busy_bus/build/busy_bus.bin` |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
 | ota_5 | `0xB90000` | magic_wand 隔空魔法棒(Gesture/RGB @PORT.A/B;📦 2026-07-12 封存,槽位回收候选) | `python -m esptool --chip esp32 -p <PORT> write-flash 0xB90000 apps/magic_wand/build/magic_wand.bin` |
 | storage | `0xD90000` | 共享素材区(spiffs,~2.4M) | 将来放烘焙精灵图/音效 |

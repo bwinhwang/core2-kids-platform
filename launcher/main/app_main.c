@@ -180,6 +180,23 @@ static void make_chick_icon(lv_obj_t *btn)
     lv_obj_align(beak, LV_ALIGN_LEFT_MID, -2, 2);
 }
 
+// ── 图标:小小巴士(白底面板:暖橙车身 + 两车窗 + 两车轮)────────────────
+static void make_bus_icon(lv_obj_t *btn)
+{
+    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
+    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t *body = plain(panel, 30, 14, 0xFB8B24, 5);                  // 车身(暖橙)
+    lv_obj_align(body, LV_ALIGN_CENTER, 0, -2);
+    lv_obj_t *win1 = plain(body, 8, 8, 0xDFF3FA, 2);                     // 车窗 ×2
+    lv_obj_set_pos(win1, 3, 3);
+    lv_obj_t *win2 = plain(body, 8, 8, 0xDFF3FA, 2);
+    lv_obj_set_pos(win2, 14, 3);
+    lv_obj_t *w1 = plain(panel, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);       // 车轮 ×2
+    lv_obj_align(w1, LV_ALIGN_CENTER, -8, 8);
+    lv_obj_t *w2 = plain(panel, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);
+    lv_obj_align(w2, LV_ALIGN_CENTER, 8, 8);
+}
+
 // ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
 static void make_generic_icon(lv_obj_t *btn)
 {
@@ -229,6 +246,7 @@ static void make_slot(lv_obj_t *scr, int idx, int x, int y)
         else if (strcmp(name, "chain_lab") == 0)    make_chain_icon(btn);
         else if (strcmp(name, "peekaboo") == 0)     make_peekaboo_icon(btn);
         else if (strcmp(name, "chick_pour") == 0)   make_chick_icon(btn);
+        else if (strcmp(name, "busy_bus") == 0)     make_bus_icon(btn);
         else                                        make_generic_icon(btn);
         // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
         lv_obj_t *lbl = lv_label_create(btn);
