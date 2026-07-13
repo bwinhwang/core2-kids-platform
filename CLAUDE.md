@@ -136,8 +136,9 @@ components/
                    chain_bus + unit_chain_encoder / unit_chain_joystick(接入套路见 §10)
   screenshot/      串口触发屏幕截图(调试设施,core2_board_init 代调):主机跑
                    tools/screenshot.py 把设备当前屏抓成 PNG,AI 协作者直接 Read"看屏"
-                   验收 UI。依赖 CONFIG_LV_USE_SNAPSHOT(已进 sdkconfig.platform,
-                   老工程重编先 rm sdkconfig + fullclean,编译期 #error 会提醒)
+                   验收 UI(**何时用/怎么用见 §10.1**)。依赖 CONFIG_LV_USE_SNAPSHOT
+                   (已进 sdkconfig.platform,老工程重编先 rm sdkconfig + fullclean,
+                   编译期 #error 会提醒)
 ```
 
 ### 任务 / 队列模型(FreeRTOS)
@@ -325,6 +326,27 @@ components/
 - **热插拔 / 容错通用形态**:单元 init 可重复调用(支持热插拔重试);没插 = 无字提示卡 + 2s 周期重试,插上即"你好"接管;连续 ~20 帧读失败判拔线回提示卡。
 - **Chain(PORT.C UART 菊花链)**:传输层 `chain_bus`(UART2 G14 TX/G13 RX,`chain_bus_request`/`chain_bus_sniff`),协议从官方库逐字节核实;⚠️ Core2 直连 Chain host 官方未背书,不通时 `chain_bus_sniff` 抓原始字节自诊(详见 `apps/chain_lab/README.md`)。
 - **launcher 图标**:每加一个游戏在 launcher 加专属图标分支,**要重刷 launcher 才显示**(不刷也能玩、显示通用笑脸)。
+
+### 10.1 屏幕截图自查(`screenshot` 组件 + `tools/screenshot.py`)
+
+AI 协作者可以自己"看"设备屏幕,不必事事等人对着实机描述画面:
+
+```bash
+python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 绝对路径 → Read 它
+```
+
+**何时用(主动用,别闲置)**:
+- **单刷/重刷后的实机点检第一步**:待验证清单里凡是"看画面就能判断"的项(布局、配色、图标、
+  状态画面、launcher 图标分支)先截图自查,把需要人来的验证压缩到手感/声/震动/灯带这些截图看不见的通道。
+- **排查"画面不对"类 bug**:先截一张拿证据再改代码,别凭描述猜。
+- **改 UI 前后各截一张**,对比确认改动生效(配合 git 里的截图描述留档更佳)。
+
+**前提与限制**:
+- 当前槽里跑的 bin 必须是 **2026-07-13 之后重编的**(含 screenshot 组件);老 bin 不认识 `SHOT`
+  命令,脚本三次重试后报错——先重编重刷再截。
+- 截图只有**视觉通道**:零失败手感、音效、震动、灯带、打盹时序仍要真人/串口日志验收。
+- 只截 LVGL 活动屏;与 `idf.py monitor` 互斥(串口独占);触发瞬间持 LVGL 锁 ~50ms,不打断游戏。
+- 协议与设计取舍见 `components/screenshot/README.md`。
 
 ---
 
