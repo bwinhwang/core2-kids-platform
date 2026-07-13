@@ -9,4 +9,5 @@ idf_component_register(
         audio_fx          # 音效引擎
         haptics           # 震动
         imu_mpu6886       # IMU
+        screenshot        # 串口截图导出(Claude Code 看屏)
 )

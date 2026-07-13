@@ -75,7 +75,7 @@
 **命令行仅用于 MCP 未覆盖的操作**(串口监视、擦 flash、解 backtrace 等),且每次开新 shell 先 source 激活脚本:
 
 ```bash
-source ~/.espressif/tools/activate_idf_v6.0.sh && source $IDF_PATH/export.sh
+source ~/.espressif/tools/activate_idf_v6.0.1.sh && source $IDF_PATH/export.sh
 idf.py -p <PORT> monitor          # 串口监视(MCP 不覆盖)
 idf.py -p <PORT> erase-flash      # 擦掉所有分区(NVS/storage 一并清)
 xtensa-esp32-elf-addr2line -pfiaC -e build/<proj>.elf <addr...>   # panic 解 backtrace

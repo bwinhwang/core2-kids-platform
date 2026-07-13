@@ -23,3 +23,6 @@ CONFIG_FREERTOS_HZ=1000
 
 # 初始化阶段 BSP/LVGL 起步较吃栈
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# LVGL snapshot:串口截图导出(components/screenshot,Claude Code 看屏用)
+CONFIG_LV_USE_SNAPSHOT=y

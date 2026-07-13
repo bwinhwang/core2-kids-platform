@@ -12,6 +12,7 @@
 #include "audio_fx.h"
 #include "haptics.h"
 #include "imu_mpu6886.h"
+#include "screenshot.h"
 
 static const char *TAG = "core2_board";
 
@@ -90,6 +91,11 @@ esp_err_t core2_board_init(const core2_board_cfg_t *cfg)
         }
         ESP_RETURN_ON_ERROR(imu_mpu6886_init(s_i2c), TAG,
                             "IMU 初始化失败(WHO_AM_I 应为 0x19)");
+    }
+
+    // 9) 串口截图(调试设施,失败不拦平台起机)
+    if (screenshot_init() != ESP_OK) {
+        ESP_LOGW(TAG, "screenshot 初始化失败,串口截图不可用(游戏不受影响)");
     }
 
     ESP_LOGI(TAG, "平台就绪:屏%s 灯带%s 音频%s 震动%s IMU%s",

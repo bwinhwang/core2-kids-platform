@@ -43,7 +43,7 @@
 | **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
 | **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ⏳ 已加 busy_bus 专属图标分支(本地编译通过),待重刷上机 | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(busy_bus 图标显示经串口截图核实,2026-07-13) | `launcher/README.md` |
 
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
 > 组件复用指南见 `docs/platform/BSP_GUIDE.md`。
@@ -134,6 +134,10 @@ components/
   ledstrip_fx/     底座 SK6812 灯效(见 §5)
   units/           PORT.A/C 外接单元驱动:unit_8encoder / unit_ultrasonic / unit_dlight /
                    chain_bus + unit_chain_encoder / unit_chain_joystick(接入套路见 §10)
+  screenshot/      串口触发屏幕截图(调试设施,core2_board_init 代调):主机跑
+                   tools/screenshot.py 把设备当前屏抓成 PNG,AI 协作者直接 Read"看屏"
+                   验收 UI。依赖 CONFIG_LV_USE_SNAPSHOT(已进 sdkconfig.platform,
+                   老工程重编先 rm sdkconfig + fullclean,编译期 #error 会提醒)
 ```
 
 ### 任务 / 队列模型(FreeRTOS)
@@ -372,6 +376,6 @@ components/
 | **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
 | **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
 | **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ⏳ 已加 busy_bus 专属图标分支(本地编译通过),待重刷上机 | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(busy_bus 图标显示经串口截图核实,2026-07-13) | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
