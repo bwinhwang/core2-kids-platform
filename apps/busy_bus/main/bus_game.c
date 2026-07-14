@@ -290,8 +290,16 @@ static void update_drive(void)
     float tvx, tvy;
 
 #if BUS_DRIVE_MODE == 0
-    tvx = jx * BUS_SPEED_MAX;
-    tvy = jy * BUS_SPEED_MAX;
+    // 死区内不给速度,否则摇杆居中残余偏移(机械回中误差/ADC 噪声)会被直接乘进
+    // 目标速度、经 EMA 收敛成一个稳定的非零漂移——静置也会缓慢滑走。
+    // 死区外按比例重新映射到 0..BUS_SPEED_MAX,避免死区边界处速度跳变。
+    float mag = sqrtf(jx * jx + jy * jy);
+    if (mag > JOY_DEADZONE) {
+        float s = BUS_SPEED_MAX * (mag - JOY_DEADZONE) / (1.0f - JOY_DEADZONE) / mag;
+        tvx = jx * s; tvy = jy * s;
+    } else {
+        tvx = 0; tvy = 0;
+    }
 #else
     float mag = sqrtf(jx * jx + jy * jy);
     if (mag > JOY_DEADZONE) {

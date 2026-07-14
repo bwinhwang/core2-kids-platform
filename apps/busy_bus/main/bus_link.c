@@ -44,7 +44,7 @@ static void hue2rgb(int h, uint8_t *r, uint8_t *g, uint8_t *b)
 
 // ── 状态 ─────────────────────────────────────────────────────────────
 static uint8_t s_joy_id;             // 0 = 未绑定;否则链上位置
-static uint16_t s_joy_cx = 2048, s_joy_cy = 2048;   // 居中校准值
+static float   s_joy_cx = 2048.f, s_joy_cy = 2048.f;   // 居中校准值(持续自适应回中,见 poll_joy)
 static float   s_joy_nx, s_joy_ny;
 static bool    s_joy_btn;
 static int     s_joy_streak;
@@ -73,9 +73,9 @@ static void joy_calibrate_center(uint8_t id)
         if (unit_chain_joystick_read_adc(id, &x, &y) == ESP_OK) { sx += x; sy += y; ok++; }
         vTaskDelay(pdMS_TO_TICKS(8));
     }
-    if (ok) { s_joy_cx = sx / ok; s_joy_cy = sy / ok; }
-    else    { s_joy_cx = 2048;    s_joy_cy = 2048;    }
-    ESP_LOGI(TAG, "摇杆居中校准:center=(%u,%u)", s_joy_cx, s_joy_cy);
+    if (ok) { s_joy_cx = (float)sx / ok; s_joy_cy = (float)sy / ok; }
+    else    { s_joy_cx = 2048.f;         s_joy_cy = 2048.f;         }
+    ESP_LOGI(TAG, "摇杆居中校准:center=(%.0f,%.0f)", s_joy_cx, s_joy_cy);
 }
 
 // 扫描链上 1..CHAIN_MAX_ID,认领第一颗 joystick(encoder 若挂着也会被扫到但直接跳过)
@@ -121,6 +121,14 @@ static bool poll_joy(bool draw)
 
     float rx = ((float)x - s_joy_cx) / JOY_HALF_SPAN;
     float ry = ((float)y - s_joy_cy) / JOY_HALF_SPAN;
+
+    // 自适应回中:实测这颗摇杆松手后的静止点会偏离开机校准中心(偏移可达 ~0.25,
+    // 超过死区),机械回中误差/温漂,固定死区盖不住。只在偏移还没到"明显在推"的
+    // 回中带内才每帧把中心慢慢拉过去;超出回中带(真的在推)时那一路轴暂停校正,
+    // 避免长按摇杆开车被拉成新中心、按住反而停下来。
+    if (fabsf(rx) < JOY_RECENTER_BAND) s_joy_cx += ((float)x - s_joy_cx) * JOY_RECENTER_PCT / 100.0f;
+    if (fabsf(ry) < JOY_RECENTER_BAND) s_joy_cy += ((float)y - s_joy_cy) * JOY_RECENTER_PCT / 100.0f;
+
 #if JOY_SWAP_XY
     float tmp = rx; rx = ry; ry = tmp;
 #endif

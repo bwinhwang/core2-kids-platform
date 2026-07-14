@@ -28,6 +28,11 @@
 #define JOY_INVERT_Y       0
 #define JOY_SWAP_XY        0
 
+// 自适应回中(实机标定,§ bus_link.c poll_joy 用):松手静止点偏离开机校准中心的
+// 幅度,只在此带内才每帧校正中心;推杆超出这个带就暂停校正(避免长按被吃成新中心)。
+#define JOY_RECENTER_BAND  0.35f
+#define JOY_RECENTER_PCT   3       // 每帧校正百分比(20Hz 下时间常数≈1.7s)
+
 // 节点板载 RGB 亮度档 0~100(护眼压低)
 #define NODE_RGB_BRIGHTNESS 40
 

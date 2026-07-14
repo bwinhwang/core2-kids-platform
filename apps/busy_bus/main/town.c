@@ -17,8 +17,8 @@
 #define TREE_TRUNK    0x8A5A32
 #define FOUNTAIN_COL  0x7FC7E0
 #define FOUNTAIN_RIM  0xEAE6DA
-#define GARAGE_COL    0xD8CDB0
-#define GARAGE_MARK   0xB8AF9C
+#define GARAGE_COL    0xC6CDBE   // 车库地垫:冷灰绿,原暖棕调与巴士车身暖橙(0xFB8B24)几乎同色,开局车身"藏"进车库里
+#define GARAGE_MARK   0xF3EFE4   // 车位描边:浅米,像地面漆线,同时跟新地垫拉开明度
 
 #define HOUSE_W   56
 #define HOUSE_H   40
@@ -80,6 +80,12 @@ static lv_obj_t *outline(lv_obj_t *parent, int w, int h, uint32_t border, int bw
     return o;
 }
 
+// 门朝向:false=朝下(贴房身底沿),true=朝上(贴屋檐下沿)。必须跟 HOUSE_DOOR 的送达
+// 判定区同侧——GREEN 的判定区在房子上方(喷泉那一侧,巴士够得到),下方紧贴屏幕下树篱、
+// 碰撞半径根本挤不进那条缝(算过:房身下沿到树篱仅 16px,巴士碰撞半径 14px 进不去)。
+// 原先视觉门不分朝向一律画在底沿,GREEN 玩家会对着一扇够不到的门,送不进乘客。
+static const bool HOUSE_DOOR_UP[TOWN_HOUSES] = { false, false, true };
+
 static void make_house(lv_obj_t *parent, int idx)
 {
     const rect_t *b = &HOUSE_BODY[idx];
@@ -90,13 +96,20 @@ static void make_house(lv_obj_t *parent, int idx)
     lv_obj_t *roof = plain(parent, (int)b->w + 6, ROOF_H, HOUSE_ROOF[idx], 4);
     lv_obj_set_pos(roof, (int)b->x - 3, (int)b->y);
 
-    lv_obj_t *win = plain(parent, 16, 16, WINDOW_DARK, 3);
-    lv_obj_set_pos(win, (int)(b->x + b->w / 2 - 8), (int)b->y + ROOF_H + 6);
+    // 窗+门竖直预算 = HOUSE_H-ROOF_H(26px);16px+12px=28px 天生重叠,两者各改窄矮
+    // (14×12)分居屋檐下沿/底沿两端,留 2px 缝,不再重叠、也不再互相遮挡点亮反馈。
+    bool door_up = HOUSE_DOOR_UP[idx];
+    int  door_x  = (int)(b->x + b->w / 2 - 7);
+    int  eave_y  = (int)b->y + ROOF_H + 2;         // 贴屋檐下沿
+    int  sill_y  = (int)(b->y + b->h - 12);        // 贴房身底沿
+
+    lv_obj_t *win = plain(parent, 14, 12, WINDOW_DARK, 3);
+    lv_obj_set_pos(win, door_x, door_up ? sill_y : eave_y);
     s_house_window[idx] = win;
     s_house_lit[idx] = false;
 
     lv_obj_t *door = plain(parent, 14, 12, DOOR_COL, 2);
-    lv_obj_set_pos(door, (int)(b->x + b->w / 2 - 7), (int)(b->y + b->h - 12));
+    lv_obj_set_pos(door, door_x, door_up ? eave_y : sill_y);
 }
 
 static void make_garage(lv_obj_t *parent)
