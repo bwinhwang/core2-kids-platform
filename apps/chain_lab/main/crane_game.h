@@ -3,6 +3,8 @@
 // 本层只消费 chain_lab_* getter、不碰 chain_bus/unit_chain_* 协议层(SPEC §1 红线)。
 #pragma once
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,6 +21,11 @@ void crane_game_sync_attach(void);
 
 /** @brief 深度省电唤醒后:爪子/吊臂复位安全位置(收起 + 回中),取消进行中的抓取动画。 */
 void crane_game_reset_position(void);
+
+/** @brief 此刻是否允许摇杆自适应回中(见 chain_lab.c poll_joy):仅 PLAY_IDLE + 爪子在顶。
+ *         下降/抓取/上升/落架/派对期间返回 false —— 冻结中心,免得孩子推着杆瞄准时
+ *         偏移被吃成新中心、吊臂自己滑回屏幕中间。 */
+bool crane_game_recenter_ok(void);
 
 #ifdef __cplusplus
 }

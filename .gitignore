@@ -6,6 +6,10 @@ sdkconfig.old
 # 组件管理器拉取的托管依赖(由 idf_component.yml + *.lock 复现)
 managed_components/
 
+# Python 字节码缓存(tools/ 下的脚本被当模块 import 时生成)
+__pycache__/
+*.pyc
+
 # 编辑器/系统
 .vscode/
 .DS_Store

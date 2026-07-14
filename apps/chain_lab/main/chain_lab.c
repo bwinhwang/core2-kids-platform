@@ -77,11 +77,16 @@ static bool    s_enc_btn;
 static int     s_enc_streak;
 static uint8_t s_enc_led[3] = { 1, 1, 1 };   // 上次写入节点的 RGB(强制首次写)
 
-static uint16_t s_joy_cx = 2048, s_joy_cy = 2048;   // 居中校准值
+static float   s_joy_cx = 2048.f, s_joy_cy = 2048.f;   // 居中校准值(持续自适应回中,见 poll_joy)
 static float   s_joy_nx, s_joy_ny;
 static bool    s_joy_btn;
 static int     s_joy_streak;
 static uint8_t s_joy_led[3] = { 1, 1, 1 };
+static uint16_t s_joy_px, s_joy_py;                 // 上一帧原始 ADC(算帧间变化量 → 活动判据)
+static bool     s_joy_have_prev;
+#if JOY_CAL_LOG
+static int      s_joy_dmax_x, s_joy_dmax_y, s_joy_log_frames;   // 标定日志:帧间变化峰值
+#endif
 
 static int     s_rescan_frames;
 
@@ -263,9 +268,10 @@ static void joy_calibrate_center(uint8_t id)
         if (unit_chain_joystick_read_adc(id, &x, &y) == ESP_OK) { sx += x; sy += y; ok++; }
         vTaskDelay(pdMS_TO_TICKS(8));
     }
-    if (ok) { s_joy_cx = sx / ok; s_joy_cy = sy / ok; }
-    else    { s_joy_cx = 2048;    s_joy_cy = 2048;    }
-    ESP_LOGI(TAG, "摇杆居中校准:center=(%u,%u)", s_joy_cx, s_joy_cy);
+    if (ok) { s_joy_cx = (float)sx / ok; s_joy_cy = (float)sy / ok; }
+    else    { s_joy_cx = 2048.f;         s_joy_cy = 2048.f;         }
+    s_joy_have_prev = false;   // 重扫/深度省电断电复位后,别拿断电前的旧读数算帧间变化
+    ESP_LOGI(TAG, "摇杆居中校准:center=(%.0f,%.0f)", s_joy_cx, s_joy_cy);
 }
 
 // 扫描链上 1..CHAIN_MAX_ID,认领第一颗 encoder / joystick(只扫尚未绑定的槽)
@@ -345,8 +351,26 @@ static bool poll_joy(bool draw)
     s_joy_streak = 0;
     unit_chain_joystick_read_button(s_joy_id, &btn);
 
+    // 帧间原始 ADC 变化量 —— 活动判据用它,不用绝对偏移(理由见 tuning.h JOY_MOVE_ADC)
+    int dx = 0, dy = 0;
+    if (s_joy_have_prev) {
+        dx = (int)x - (int)s_joy_px; if (dx < 0) dx = -dx;
+        dy = (int)y - (int)s_joy_py; if (dy < 0) dy = -dy;
+    }
+    s_joy_px = x; s_joy_py = y; s_joy_have_prev = true;
+
     float rx = ((float)x - s_joy_cx) / JOY_HALF_SPAN;
     float ry = ((float)y - s_joy_cy) / JOY_HALF_SPAN;
+
+    // 自适应回中:实测这颗摇杆被推过一次后,机械回中点就永久偏离开机校准中心(~220 ADC
+    // ≈0.15,推左推右都偏到同一新点、不回),开机校准再准也白搭。只在偏移还在回中带内
+    // (没在大幅推杆)、且游戏层允许(PLAY_IDLE + 爪子在顶)时,才把中心慢慢拉过去 ——
+    // 下降/抓取期间冻结,免得孩子推着杆瞄准被吃成新中心、吊臂自己滑回屏幕中间。
+    if (crane_game_recenter_ok()) {
+        if (fabsf(rx) < JOY_RECENTER_BAND) s_joy_cx += ((float)x - s_joy_cx) * JOY_RECENTER_PCT / 100.0f;
+        if (fabsf(ry) < JOY_RECENTER_BAND) s_joy_cy += ((float)y - s_joy_cy) * JOY_RECENTER_PCT / 100.0f;
+    }
+
 #if JOY_SWAP_XY
     float tmp = rx; rx = ry; ry = tmp;
 #endif
@@ -358,11 +382,23 @@ static bool poll_joy(bool draw)
 #endif
     float nx = clampf(rx, -1.0f, 1.0f);
     float ny = clampf(ry, -1.0f, 1.0f);
-    bool moved = fabsf(nx) > JOY_MOVE_KICK || fabsf(ny) > JOY_MOVE_KICK;
+    // 在推(帧间变化)或推着杆保持(偏移显著)或按住 = 有人玩;恒定回中偏置两条都够不着
+    bool moved = (dx > JOY_MOVE_ADC) || (dy > JOY_MOVE_ADC)
+                 || fabsf(nx) > JOY_HOLD_KICK || fabsf(ny) > JOY_HOLD_KICK;
     bool press_edge = btn && !s_joy_btn;             // 相对上一帧的上升沿
-    bool activity   = moved || btn;                  // 偏移或按住 = 有人玩
+    bool activity   = moved || btn;
     s_joy_nx = nx; s_joy_ny = ny;
     s_joy_btn = btn;
+
+#if JOY_CAL_LOG
+    if (dx > s_joy_dmax_x) s_joy_dmax_x = dx;
+    if (dy > s_joy_dmax_y) s_joy_dmax_y = dy;
+    if (++s_joy_log_frames >= JOY_CAL_LOG_EVERY) {
+        ESP_LOGI(TAG, "joy raw=(%5u,%5u) c=(%5.0f,%5.0f) n=(%+.3f,%+.3f) dmax=(%3d,%3d) btn=%d",
+                 x, y, s_joy_cx, s_joy_cy, nx, ny, s_joy_dmax_x, s_joy_dmax_y, btn);
+        s_joy_log_frames = 0; s_joy_dmax_x = 0; s_joy_dmax_y = 0;
+    }
+#endif
 
 #if CHAIN_LAB_DIAG_MODE
     if (draw) {

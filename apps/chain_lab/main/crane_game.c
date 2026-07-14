@@ -654,11 +654,25 @@ static void tick_party(void)
 }
 
 // ── 输入处理(每帧,SPEC §2/§3)────────────────────────────────────────────
+// 死区 + 线性重缩放:盖住摇杆噪声(±40 ADC ≈ ±3px 吊臂抖动),死区外仍是满行程、无跳变
+static float apply_deadzone(float n)
+{
+    float a = fabsf(n);
+    if (a < JOY_ARM_DEADZONE) return 0.f;
+    float scaled = (a - JOY_ARM_DEADZONE) / (1.0f - JOY_ARM_DEADZONE);
+    return (n < 0) ? -scaled : scaled;
+}
+
+bool crane_game_recenter_ok(void)
+{
+    return s_state == CRANE_PLAY_IDLE && s_depth == 0;
+}
+
 static void handle_joystick(void)
 {
     if (!chain_lab_joy_attached()) return;
 
-    float nx = chain_lab_joy_x();
+    float nx = apply_deadzone(chain_lab_joy_x());
     float ny = chain_lab_joy_y();
 
     int target = SCREEN_W / 2 + (int)(nx * (CRANE_X_RANGE_PX / 2));
