@@ -3,10 +3,17 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
 static const char *TAG = "chain_bus";
+
+// 🔴 总线事务互斥:一条 UART 上的一问一答必须整体串行。多个任务合法并发使用同一节点
+// (如 game_task 每帧 poll 读 ADC、feedback_task 事件写节点 RGB),若不加锁,一方的
+// uart_flush_input 会清掉另一方在途应答 → 双方都匹配不到自己的帧、各自跑满超时(40ms/笔),
+// poll 每帧两笔 ~80ms 远超帧周期 → 轮询任务空转饿死 IDLE → task_wdt。全事务函数共用此锁。
+static SemaphoreHandle_t s_lock;
 
 // ── 帧常量(M5Chain ChainCommon.hpp,逐字节对齐)──────────────────────
 #define PK_HEAD_HI   0xAA
@@ -31,6 +38,10 @@ static uart_port_t s_uart = -1;
 
 esp_err_t chain_bus_init(uart_port_t uart, int tx_pin, int rx_pin)
 {
+    if (!s_lock) {
+        s_lock = xSemaphoreCreateMutex();
+        if (!s_lock) { ESP_LOGE(TAG, "总线锁创建失败"); return ESP_ERR_NO_MEM; }
+    }
     if (uart_is_driver_installed(uart)) {
         s_uart = uart;
         return ESP_OK;
@@ -130,15 +141,20 @@ esp_err_t chain_bus_request(uint8_t id, uint8_t cmd,
     frame[total - 2] = PK_END_HI;
     frame[total - 1] = PK_END_LO;
 
+    // 🔴 从这里到函数返回是一整笔"清输入→发→等应答"事务,必须独占总线(见 s_lock 注释)。
+    // 锁最多被持有 ~timeout_ms;等锁的另一任务会正常阻塞让出 CPU,不会饿死 IDLE。
+    if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY);
+
     // 发前清掉积压的主动上报包(心跳等),让本次应答干净
     uart_flush_input(s_uart);
     int w = uart_write_bytes(s_uart, frame, total);
-    if (w != total) return ESP_FAIL;
+    if (w != total) { if (s_lock) xSemaphoreGive(s_lock); return ESP_FAIL; }
     uart_wait_tx_done(s_uart, pdMS_TO_TICKS(timeout_ms > 0 ? timeout_ms : 20));
 
     // 收 + 逐帧匹配
     uint8_t buf[SCAN_BUF];
     int buflen = 0;
+    esp_err_t result = ESP_ERR_TIMEOUT;
     int64_t t0 = esp_timer_get_time();
     while ((esp_timer_get_time() - t0) / 1000 < timeout_ms) {
         uint8_t chunk[64];
@@ -155,9 +171,10 @@ esp_err_t chain_bus_request(uint8_t id, uint8_t cmd,
         memcpy(buf + buflen, chunk, n);
         buflen += n;
 
-        if (scan_for(buf, &buflen, id, cmd, rx_payload, rx_cap, rx_len)) return ESP_OK;
+        if (scan_for(buf, &buflen, id, cmd, rx_payload, rx_cap, rx_len)) { result = ESP_OK; break; }
     }
-    return ESP_ERR_TIMEOUT;
+    if (s_lock) xSemaphoreGive(s_lock);
+    return result;
 }
 
 // ── 通用命令封装 ──────────────────────────────────────────────────────
