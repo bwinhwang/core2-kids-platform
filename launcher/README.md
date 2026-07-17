@@ -41,12 +41,15 @@ factory 分区常驻 **launcher 选择页**(本工程),6 个 ota 槽各放一个
 | 槽 | 偏移 | 游戏 | 外设 |
 |---|---|---|---|
 | factory | — | launcher | — |
-| ota_0 | 0x210000 | tilt_maze | IMU MPU6886 |
+| ota_0 | 0x190000 | tilt_maze | IMU MPU6886 |
 | ota_1 | 0x390000 | busy_knobs | 8Encoder |
-| ota_2 | 0x590000 | peekaboo | DLight |
-| ota_3 | 0x790000 | feed_monster | 超声波 |
+| ota_2 | 0x590000 | chick_pour | IMU MPU6886 |
+| ota_3 | 0x790000 | (空,2026-07-17 槽位清洗回收) | — |
 | ota_4 | 0x990000 | chain_lab | Chain Encoder/Joystick |
-| ota_5 | — | (空) | — |
+| ota_5 | 0xB90000 | fish_pond(2026-07-17 立项,未烧录) | Chain Encoder/Joystick |
+
+> ⚠️ 2026-07-17 槽位清洗后,`app_main.c` 里 peekaboo / feed_monster / busy_bus 的图标分支成了
+> 死代码(设备旧 bin 未覆盖前仍会正确显示,无害);待 fish_pond 图标批一起清理 + 重刷 launcher。
 
 > 偏移以 `tools/flash_map.md` 为准。
 

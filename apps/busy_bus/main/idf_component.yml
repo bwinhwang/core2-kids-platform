@@ -1,4 +1,0 @@
-dependencies:
-  idf: ">=5.3"
-  espressif/m5stack_core_2: "^3.0.1"
-  espressif/led_strip: "^3.0.0"

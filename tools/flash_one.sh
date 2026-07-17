@@ -13,12 +13,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 declare -A SLOT=(
     [tilt_maze]=0x190000
     [busy_knobs]=0x390000
-    [peekaboo]=0x590000
     [chick_pour]=0x590000
-    [feed_monster]=0x790000
-    [busy_bus]=0x790000
+    # ota_3 0x790000 空闲(2026-07-17 槽位清洗;pipe_garden 候选未立项)
     [chain_lab]=0x990000
-    [magic_wand]=0xB90000
+    [fish_pond]=0xB90000
 )
 
 if [[ "$APP" == "launcher" ]]; then

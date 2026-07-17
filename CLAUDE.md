@@ -11,8 +11,7 @@
 > ⚠️ **硬件平台是「Core2 + M5GO Bottom2」组合体,不是 Core2 单体。** 本机 Core2 核缺背部扩展模块,
 > **IMU 与电池均由 Bottom2 提供**;不接 Bottom2 就没 IMU、没电——绝大多数卡带跑不起来。底座是硬依赖。
 >
-> **各卡带的东西不在本文**:某个游戏的**玩法规格**见 `apps/<name>/SPEC.md`(目前 tilt_maze 与
-> peekaboo 有完整 SPEC),**竣工现状/定案数值/待实机项**见 `apps/<name>/README.md`。做新卡带前先读本文 §2(原则)、§4–§10。
+> **各卡带的东西不在本文**:某个游戏的**玩法规格**见 `apps/<name>/SPEC.md`,**竣工现状/定案数值/待实机项**见 `apps/<name>/README.md`。做新卡带前先读本文 §2(原则)、§4–§10。
 >
 > 目标读者:负责实现的 AI 协作者(Claude Code)。**涉及 ESP-IDF / 组件 API 的地方先查 MCP 再写**(`AGENTS.md` §1,清单见 §11)。
 
@@ -39,12 +38,13 @@
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **busy_bus** 小小巴士 | ota_3(原 feed_monster 槽,2026-07-12 回收) | Chain 摇杆(UART) | 🔄 P1+P2+P3 代码一次性写完,编译通过,**待单刷实机验证**(P1 车感是最大未知) | `apps/busy_bus/SPEC.md` + `README.md` |
-| **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
-| **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
-| **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(busy_bus 图标显示经串口截图核实,2026-07-13) | `launcher/README.md` |
+| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 📐 SPEC 定稿(**首张大对象护眼约束原生卡带**),未开工;P1 先验"移动目标追踪"概念 | `apps/fish_pond/SPEC.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
 
+> **2026-07-17 槽位清洗**(用户拍板,结合大对象护眼约束 §2-5/§8):peekaboo / feed_monster /
+> magic_wand / busy_bus / slingshot_feed 五个 app **已从仓库删除**(git 历史留档);ota_3 空闲
+> (pipe_garden 候选未立项,SPEC 在 `apps/pipe_garden/SPEC.md`)。经过见 `docs/ROADMAP.md` §4。
+>
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
 > 组件复用指南见 `docs/platform/BSP_GUIDE.md`。
 
@@ -58,7 +58,7 @@
 2. **即时且可无限重复**:任何动作 < 100ms 内有反馈;随便玩多久、来回操作都行,无惩罚、无计时。
 3. **多通道冗余反馈**:同一事件同时给 **画面 + 声音 + 震动 + 灯带(底座 10×SK6812)**,任一通道都能独立传达"发生了什么"(见 §5)。
 4. **宽容物理**:速度封顶、强阻尼、撞墙滑行而非粘住、死区防漂——宁可慢一点也别飘。
-5. **幼儿安全**:亮度压低、暖色、**无全屏快速频闪**(防光敏)、音量适中且软启停防爆音(见 §8)。
+5. **幼儿安全**:亮度压低、暖色、**无全屏快速频闪**(防光敏)、**画面物体绘制得够大**(护眼,别逼孩子眯眼凑屏)、音量适中且软启停防爆音(见 §8)。
 6. **渲染红线**(硬约束,见 §6):经典 ESP32 无 2D 加速、屏走 SPI,**永不每帧整屏重绘**。
 
 > 不识字是硬前提:信息全靠**脸/颜色/动作/图标/声音**承载,文字仅装饰。大目标、大对象、慢反馈、强宽容——全方位降门槛。
@@ -137,8 +137,7 @@ components/
   screenshot/      串口触发屏幕截图(调试设施,core2_board_init 代调):主机跑
                    tools/screenshot.py 把设备当前屏抓成 PNG,AI 协作者直接 Read"看屏"
                    验收 UI(**何时用/怎么用见 §10.1**)。依赖 CONFIG_LV_USE_SNAPSHOT
-                   (已进 sdkconfig.platform,老工程重编先 rm sdkconfig + fullclean,
-                   编译期 #error 会提醒)
+                   (已进 sdkconfig.platform)
 ```
 
 ### 任务 / 队列模型(FreeRTOS)
@@ -281,6 +280,7 @@ components/
 
 **安全(硬性)**:
 - **亮度压低 + 暖色**,避免满屏纯白长时间直射眼睛;idle 进一步调暗(也省电)。
+- 🔴 **画面物体绘制得够大(护眼)**:主角 / 可交互目标 / 传达状态的图标,**最小边 ≥ ~64px(≈屏高 1/4)**;承载核心信息的对象宁可占屏 1/3+,纯装饰细节不受限。幼儿视力发育中,小物体逼孩子眯眼、凑近屏 → 费眼又拉近视距,双重伤眼;够大也顺带降了手部精度门槛(§2 原则 4/无障碍)。(大对象 = 大脏矩形,仍守 §6 帧预算:宁可**少而大**,别多而挤;~64px 为下限指引,实机再按视距标定。)
 - **无全屏快速频闪 / 无高频强对比闪烁**(光敏安全);庆祝特效柔和飘落,泛光为**单次**非连闪。
 - **音量有上限**,默认适中,软启停防爆音突响吓到孩子(见 §5.1)。
 
@@ -342,8 +342,6 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 - **改 UI 前后各截一张**,对比确认改动生效(配合 git 里的截图描述留档更佳)。
 
 **前提与限制**:
-- 当前槽里跑的 bin 必须是 **2026-07-13 之后重编的**(含 screenshot 组件);老 bin 不认识 `SHOT`
-  命令,脚本三次重试后报错——先重编重刷再截。
 - 截图只有**视觉通道**:零失败手感、音效、震动、灯带、打盹时序仍要真人/串口日志验收。
 - 只截 LVGL 活动屏;与 `idf.py monitor` 互斥(串口独占);触发瞬间持 LVGL 锁 ~50ms,不打断游戏。
 - 协议与设计取舍见 `components/screenshot/README.md`。
@@ -386,7 +384,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 
 ## 12. 各 App 竣工索引
 
-各 app 的 **as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,玩法规格在 SPEC(目前仅 tilt_maze):
+各 app 的 **as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,玩法规格在 SPEC:
 
 | App | 槽 | 外设 | 状态 | 竣工记录 |
 |---|---|---|---|---|
@@ -394,10 +392,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **busy_bus** 小小巴士 | ota_3(原 feed_monster 槽,2026-07-12 回收) | Chain 摇杆(UART) | 🔄 P1+P2+P3 代码一次性写完,编译通过,**待单刷实机验证**(P1 车感是最大未知) | `apps/busy_bus/SPEC.md` + `README.md` |
-| **peekaboo** 躲猫猫昼夜屋 | —(ota_2 已让给 chick_pour) | DLight | 📦 封存(2026-07-12 拍板,不再投入;v2 SPEC 留档) | `apps/peekaboo/SPEC.md` + `README.md` |
-| **feed_monster** 喂怪兽 | —(ota_3 已让给 busy_bus) | 超声波 | 📦 封存(2026-07-12 拍板,不再投入,未实机) | `apps/feed_monster/README.md` |
-| **magic_wand** 魔法萤火虫 | ota_5(回收候选) | Gesture(PAJ7620U2)+ RGB(P4) | 📦 封存(2026-07-12 拍板;v1 九法术、v2 光标跟手均否决,v2.1 在场+手势体感欠佳) | `apps/magic_wand/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(busy_bus 图标显示经串口截图核实,2026-07-13) | `launcher/README.md` |
+| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 📐 SPEC 定稿(**首张大对象护眼约束原生卡带**),未开工;P1 先验"移动目标追踪"概念 | `apps/fish_pond/SPEC.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
