@@ -1,0 +1,22 @@
+# power_lab 工程差异项(共享默认值见 ../../sdkconfig.platform)
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"
+
+# CPU 锁频负载项(esp_pm_configure,见 main/power_lab_ctl.c)。只本工程开启,不进共享
+# sdkconfig.platform——CONFIG_PM_ENABLE 有运行时开销(中断延迟增加),其它评估 app/游戏
+# 不需要为它多付这个代价。
+#
+# Confirmed via espressif-docs MCP + $IDF_PATH/components/esp_pm/Kconfig(esp-idf v6.0
+# 本地源码交叉核对):CONFIG_PM_ENABLE 的可选条件是 `!FREERTOS_SMP && SOC_PM_SUPPORTED`
+# (本仓 FREERTOS_SMP 默认关闭,esp32 经典款 SOC_PM_SUPPORTED=y,可选)。CONFIG_PM_DFS_INIT_AUTO
+# 默认关闭,意味着开 CONFIG_PM_ENABLE 本身**不会**自动启动动态调频——运行时状态完全由本
+# app 主动调用 esp_pm_configure() 决定,不影响开机默认行为。
+#
+# 本 app 的 CPU 锁频矩阵项刻意只在 max/min 频率间切换、**不开 light_sleep_enable**
+# (esp_pm_config_t.light_sleep_enable 恒为 false,见 power_lab_ctl.c apply_cpu_mode),
+# 因此不需要额外开 CONFIG_FREERTOS_USE_TICKLESS_IDLE——那是自动轻睡眠专属的前置条件
+# (Kconfig 帮助文本 + pm_impl.c 源码均确认:esp_pm_configure 只在
+# config->light_sleep_enable=true 且 CONFIG_FREERTOS_USE_TICKLESS_IDLE 未开时才返回
+# ESP_ERR_NOT_SUPPORTED)。不开自动轻睡眠也避开了经典 ESP32 + PSRAM 组合下 light sleep
+# 期间 PSRAM CS 引脚漏电流需要额外 Kconfig(CONFIG_ESP_SLEEP_PSRAM_LEAKAGE_WORKAROUND)
+# 兜底的那一整套配置面,查证结论见 apps/power_lab/README.md「CPU 锁频查证结论」。
+CONFIG_PM_ENABLE=y
