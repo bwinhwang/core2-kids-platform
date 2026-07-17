@@ -93,8 +93,19 @@ void core2_sleep_wake(core2_sleep_t *s);
 /** @brief 记一次"外部活动":清零静止计时(切关/交互事件时调,防误打盹)。 */
 void core2_sleep_kick(core2_sleep_t *s);
 
-/** @brief 运行时改清醒亮度(家长菜单用);清醒态立即生效,休眠态记住待唤醒用。 */
+/** @brief 运行时改清醒亮度;清醒态立即生效,休眠态记住待唤醒用。 */
 void core2_sleep_set_awake_brightness(core2_sleep_t *s, int pct);
+
+/**
+ * @brief 手动跳到目标阶段(2026-07-17 新增,power_lab 休眠演练用)。
+ *
+ * 复用组件内固化的亮度→DCDC3→灯带→5V 顺序(内部直接调用文件内已有的
+ * enter_nap/enter_deep/do_wake,与自动状态机走同一套路径),**不许 app 散装重拼这套
+ * 顺序**。跳到当前已在的阶段是空操作。stage 传 AWAKE 等价于唤醒(即 core2_sleep_wake)。
+ *
+ * @param stage 目标阶段。
+ */
+void core2_sleep_force_stage(core2_sleep_t *s, core2_sleep_stage_t stage);
 
 #ifdef __cplusplus
 }

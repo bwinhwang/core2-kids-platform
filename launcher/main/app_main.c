@@ -1,15 +1,12 @@
-// launcher —— 幼儿游戏机选择页(factory 分区常驻)
+// launcher —— IoT 评估台选择页(factory 分区常驻)
 //
-// 职责:上电展示"游戏卡带架"(6 个 ota 槽的大图标),点击 → app_slot_launch 重启进游戏;
-//       游戏内任何复位/家长菜单 Home 都会回到这里(机制见 components/app_slot/README.md;
-//       电源键触发的软件退出 2026-07-09 已取消)。
-// 原则:无文字承载信息(§13)、暖色低亮、点击必有回应(空槽也给"啵"一声,零失败);
-//       久置走 core2_sleep 两级省电(选择页也耗电池)。
+// 职责:上电展示"评估卡带架"(6 个 ota 槽的数据驱动卡片),点击 → app_slot_launch 重启进
+//       评估 app;评估 app 内任何复位都会回到这里(机制见 components/app_slot/README.md)。
 //
-// 【二期预留】PORT.A 探测(DLight 0x23/8Encoder 0x41/超声波 0x57/手势 0x73):
-//   探到单元 → 直接进对应游戏槽,"插卡带即开机";实现放 probe.c,勿混进本文件。
-
-#include <string.h>
+// 2026-07-17 平台转向重写(取代旧版幼儿掌机选择页):删 mascot/7 个手绘图标函数/strcmp
+// 分支/马卡龙色表,槽卡片改**数据驱动渲染**——直读 app_slot_info() 的 project_name/
+// version/date,不再需要为每个新 app 手绘图标 + 重刷 launcher(CLAUDE.md §10)。
+// 顶部加 ui_status_bar(电池/USB,power_monitor 遥测),深灰工程风配色。
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -24,18 +21,29 @@
 #include "core2_sleep.h"
 #include "haptics.h"
 #include "imu_mpu6886.h"
+#include "power_monitor.h"
+#include "ui_kit.h"
 
 static const char *TAG = "launcher";
 
-static core2_sleep_t s_sleep;
-static volatile int  s_pending = -1;  // 待启动槽位(点击回调置位,主循环消费;-1=无)
+static core2_sleep_t   s_sleep;
+static ui_status_bar_t *s_status_bar;
+static volatile int    s_pending = -1;  // 待启动槽位(点击回调置位,主循环消费;-1=无)
+static bool             s_power_ready = false;
 
-// 槽位马卡龙色(依次:草绿/海蓝/星紫/糖粉/蜜黄/薄荷,§18.2 色系)
-static const uint32_t SLOT_COLORS[APP_SLOT_COUNT] = {
-    0xA7C957, 0x4FB0D8, 0x9C9AD0, 0xFF8FB0, 0xFFC75F, 0x7FD0C0,
-};
+// 深灰工程风配色(与幼儿掌机时期马卡龙色系区分,§ui_kit 同一套色板)
+#define COLOR_BG        0x1E2126   // 屏背景(比卡片再深一档)
+#define COLOR_EMPTY_BG  0x24282D   // 空槽卡片背景
 
-// ── 小工具:无样式裸对象(纯色块拼图形用)─────────────────────────────
+// ── 粗略电量映射(LiPo 3.3V=0% ~ 4.2V=100% 线性近似,精度待实机标定)────────────
+static int batt_mv_to_pct(int mv)
+{
+    if (mv <= 3300) return 0;
+    if (mv >= 4200) return 100;
+    return (int)((mv - 3300) * 100 / (4200 - 3300));
+}
+
+// ── 无样式裸对象(纯色块拼图形用)───────────────────────────────────────────
 static lv_obj_t *plain(lv_obj_t *parent, int w, int h, uint32_t color, int radius)
 {
     lv_obj_t *o = lv_obj_create(parent);
@@ -48,169 +56,7 @@ static lv_obj_t *plain(lv_obj_t *parent, int w, int h, uint32_t color, int radiu
     return o;
 }
 
-// ── 吉祥物「圆圆」小脸(顶部招牌,轻微上下浮动)───────────────────────
-static void mascot_bob_cb(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, v); }
-
-static void make_mascot(lv_obj_t *scr)
-{
-    lv_obj_t *face = plain(scr, 44, 44, 0xFFD23F, LV_RADIUS_CIRCLE);  // 身体
-    lv_obj_set_pos(face, (320 - 44) / 2, 10);
-
-    lv_obj_t *el = plain(face, 9, 9, 0xFFFFFF, LV_RADIUS_CIRCLE);     // 眼白 ×2
-    lv_obj_align(el, LV_ALIGN_CENTER, -9, -4);
-    lv_obj_t *er = plain(face, 9, 9, 0xFFFFFF, LV_RADIUS_CIRCLE);
-    lv_obj_align(er, LV_ALIGN_CENTER, 9, -4);
-    lv_obj_t *pl = plain(el, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);       // 瞳孔
-    lv_obj_center(pl);
-    lv_obj_t *pr = plain(er, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_center(pr);
-    lv_obj_t *beak = plain(face, 8, 6, 0xFB8B24, 3);                  // 小喙
-    lv_obj_align(beak, LV_ALIGN_CENTER, 0, 8);
-
-    // 上下浮动 ±4px(局部小区域低频动效,§9.5 帧预算内)
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, face);
-    lv_anim_set_exec_cb(&a, mascot_bob_cb);
-    lv_anim_set_values(&a, 8, 16);
-    lv_anim_set_duration(&a, 1400);
-    lv_anim_set_playback_duration(&a, 1400);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
-}
-
-// ── 图标:倾斜迷宫(白底小迷宫 + 两道墙 + 球 + 家)────────────────────
-static void make_maze_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_t *w1 = plain(panel, 26, 6, 0x7FB069, 3);   // 墙(树篱绿)
-    lv_obj_set_pos(w1, 0, 10);
-    lv_obj_t *w2 = plain(panel, 26, 6, 0x7FB069, 3);
-    lv_obj_align(w2, LV_ALIGN_TOP_RIGHT, 0, 22);
-    lv_obj_t *ball = plain(panel, 10, 10, 0xFFD23F, LV_RADIUS_CIRCLE);  // 圆圆
-    lv_obj_set_pos(ball, 4, 26);
-    lv_obj_t *home = plain(panel, 10, 10, 0xC68A52, LV_RADIUS_CIRCLE);  // 家(鸟窝)
-    lv_obj_align(home, LV_ALIGN_TOP_RIGHT, -4, 2);
-}
-
-// ── 图标:旋钮忙碌台(白底面板 + 三颗彩色旋钮 + 音柱)─────────────────
-static void make_knobs_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    const uint32_t kc[3] = { 0xFF9E80, 0xFFC75F, 0x4FB0D8 };  // 旋钮 ×3(游戏音柱同色系)
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t *knob = plain(panel, 10, 10, kc[i], LV_RADIUS_CIRCLE);
-        lv_obj_set_pos(knob, 4 + i * 13, 5);
-        lv_obj_t *dot = plain(knob, 3, 3, 0x3A3A38, LV_RADIUS_CIRCLE);
-        lv_obj_align(dot, LV_ALIGN_TOP_MID, 0, 1);
-    }
-    const int bar_h[3] = { 10, 16, 7 };                        // 高低错落的小音柱
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t *bar = plain(panel, 8, bar_h[i], 0xA7C957, 3);
-        lv_obj_set_pos(bar, 6 + i * 12, 38 - bar_h[i]);
-    }
-}
-
-// ── 图标:喂怪兽(薄荷圆脸 + 大张嘴 + 头顶饼干)──────────────────────
-static void make_monster_icon(lv_obj_t *btn)
-{
-    lv_obj_t *cookie = plain(btn, 12, 12, 0xE0B87A, LV_RADIUS_CIRCLE);  // 头顶饼干
-    lv_obj_align(cookie, LV_ALIGN_TOP_MID, 0, 4);
-    lv_obj_t *face = plain(btn, 42, 42, 0x7FD0C0, LV_RADIUS_CIRCLE);    // 薄荷怪兽脸
-    lv_obj_align(face, LV_ALIGN_TOP_MID, 0, 14);
-    lv_obj_t *el = plain(face, 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
-    lv_obj_align(el, LV_ALIGN_TOP_MID, -9, 8);
-    lv_obj_t *er = plain(face, 8, 8, 0xFFFFFF, LV_RADIUS_CIRCLE);
-    lv_obj_align(er, LV_ALIGN_TOP_MID, 9, 8);
-    lv_obj_t *pl = plain(el, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_center(pl);
-    lv_obj_t *pr = plain(er, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_center(pr);
-    lv_obj_t *mouth = plain(face, 20, 14, 0x7A3B34, 6);                 // 张开的大嘴
-    lv_obj_align(mouth, LV_ALIGN_TOP_MID, 0, 20);
-}
-
-// ── 图标:Chain 验证台(白底面板:左旋钮 + 右摇杆方框)────────────────
-static void make_chain_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_t *knob = plain(panel, 16, 16, 0xFB8B24, LV_RADIUS_CIRCLE);   // 编码器旋钮
-    lv_obj_align(knob, LV_ALIGN_LEFT_MID, 4, 0);
-    lv_obj_t *kd = plain(knob, 4, 4, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_align(kd, LV_ALIGN_TOP_MID, 0, 2);
-    lv_obj_t *box = plain(panel, 18, 18, 0x4FB0D8, 4);                   // 摇杆方框
-    lv_obj_align(box, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_t *stick = plain(box, 7, 7, 0xFFFFFF, LV_RADIUS_CIRCLE);      // 摇杆光点
-    lv_obj_center(stick);
-}
-
-// ── 图标:躲猫猫昼夜屋(白底面板:左太阳 + 右月亮 + 小星,= 昼夜)────────────
-static void make_peekaboo_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_t *sun = plain(panel, 16, 16, 0xFFC75F, LV_RADIUS_CIRCLE);    // 白天太阳
-    lv_obj_align(sun, LV_ALIGN_LEFT_MID, 4, 0);
-    lv_obj_t *moon = plain(panel, 15, 15, 0x9C9AD0, LV_RADIUS_CIRCLE);   // 夜晚月亮(星紫)
-    lv_obj_align(moon, LV_ALIGN_RIGHT_MID, -5, 2);
-    lv_obj_t *star = plain(panel, 5, 5, 0xFFE89B, LV_RADIUS_CIRCLE);     // 小星
-    lv_obj_align(star, LV_ALIGN_TOP_RIGHT, -6, 4);
-}
-
-// ── 图标:小鸡回窝(白底面板:红顶鸡窝 + 门洞 + 黄小鸡)────────────────
-static void make_chick_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_t *house = plain(panel, 22, 19, 0xE8C79A, 4);                 // 木屋身
-    lv_obj_align(house, LV_ALIGN_BOTTOM_LEFT, 3, -3);
-    lv_obj_t *roof = plain(panel, 26, 8, 0xD9483A, 4);                   // 红屋顶
-    lv_obj_align(roof, LV_ALIGN_BOTTOM_LEFT, 1, -20);
-    lv_obj_t *door = plain(house, 8, 11, 0x452F1D, 3);                   // 门洞
-    lv_obj_align(door, LV_ALIGN_BOTTOM_RIGHT, -2, -2);
-    lv_obj_t *chick = plain(panel, 14, 14, 0xF7C233, LV_RADIUS_CIRCLE);  // 往家走的小鸡
-    lv_obj_align(chick, LV_ALIGN_BOTTOM_RIGHT, -4, -5);
-    lv_obj_t *eye = plain(chick, 3, 3, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_align(eye, LV_ALIGN_CENTER, -2, -2);
-    lv_obj_t *beak = plain(chick, 5, 4, 0xF0A030, 2);                    // 喙朝家的方向
-    lv_obj_align(beak, LV_ALIGN_LEFT_MID, -2, 2);
-}
-
-// ── 图标:小小巴士(白底面板:暖橙车身 + 两车窗 + 两车轮)────────────────
-static void make_bus_icon(lv_obj_t *btn)
-{
-    lv_obj_t *panel = plain(btn, 44, 40, 0xFFFFFF, 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_MID, 0, 8);
-    lv_obj_t *body = plain(panel, 30, 14, 0xFB8B24, 5);                  // 车身(暖橙)
-    lv_obj_align(body, LV_ALIGN_CENTER, 0, -2);
-    lv_obj_t *win1 = plain(body, 8, 8, 0xDFF3FA, 2);                     // 车窗 ×2
-    lv_obj_set_pos(win1, 3, 3);
-    lv_obj_t *win2 = plain(body, 8, 8, 0xDFF3FA, 2);
-    lv_obj_set_pos(win2, 14, 3);
-    lv_obj_t *w1 = plain(panel, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);       // 车轮 ×2
-    lv_obj_align(w1, LV_ALIGN_CENTER, -8, 8);
-    lv_obj_t *w2 = plain(panel, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_align(w2, LV_ALIGN_CENTER, 8, 8);
-}
-
-// ── 图标:通用游戏(白色笑脸占位;新游戏可在此加专属图标分支)──────────
-static void make_generic_icon(lv_obj_t *btn)
-{
-    lv_obj_t *face = plain(btn, 38, 38, 0xFFFFFF, LV_RADIUS_CIRCLE);
-    lv_obj_align(face, LV_ALIGN_TOP_MID, 0, 9);
-    lv_obj_t *el = plain(face, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_align(el, LV_ALIGN_CENTER, -8, -2);
-    lv_obj_t *er = plain(face, 7, 7, 0x3A3A38, LV_RADIUS_CIRCLE);
-    lv_obj_align(er, LV_ALIGN_CENTER, 8, -2);
-    lv_obj_t *mouth = plain(face, 12, 5, 0xFB8B24, 2);
-    lv_obj_align(mouth, LV_ALIGN_CENTER, 0, 9);
-}
-
-// ── 点击:空槽也回应(零失败),有效槽记下待启动 ──────────────────────
+// ── 点击:空槽也回应(轻反馈),有效槽记下待启动 ──────────────────────────────
 static void on_slot_clicked(lv_event_t *e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
@@ -225,44 +71,66 @@ static void on_slot_clicked(lv_event_t *e)
     s_pending = idx;                        // 主循环消费(等音效播出再重启)
 }
 
-// ── 一个游戏槽按钮(96×80;有游戏=彩色+图标,空槽=灰色凹槽)────────────
+// ── 一个评估槽卡片(96×80;有 app=深灰卡片+数据驱动文字,空槽=更暗凹槽)────────
 static void make_slot(lv_obj_t *scr, int idx, int x, int y)
 {
-    char name[32] = "";
-    bool present = app_slot_present(idx, name, sizeof(name));
+    app_slot_info_t info;
+    bool present = app_slot_info(idx, &info);
 
     lv_obj_t *btn = lv_button_create(scr);
+    lv_obj_remove_style_all(btn);
     lv_obj_set_pos(btn, x, y);
     lv_obj_set_size(btn, 96, 80);
-    lv_obj_set_style_radius(btn, 16, 0);
-    lv_obj_set_style_shadow_width(btn, 0, 0);
+    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 
     if (present) {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(SLOT_COLORS[idx]), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(UI_KIT_COLOR_PANEL), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
         lv_obj_add_event_cb(btn, on_slot_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
-        if      (strcmp(name, "tilt_maze") == 0)    make_maze_icon(btn);
-        else if (strcmp(name, "busy_knobs") == 0)   make_knobs_icon(btn);
-        else if (strcmp(name, "feed_monster") == 0) make_monster_icon(btn);
-        else if (strcmp(name, "chain_lab") == 0)    make_chain_icon(btn);
-        else if (strcmp(name, "peekaboo") == 0)     make_peekaboo_icon(btn);
-        else if (strcmp(name, "chick_pour") == 0)   make_chick_icon(btn);
-        else if (strcmp(name, "busy_bus") == 0)     make_bus_icon(btn);
-        else                                        make_generic_icon(btn);
-        // 小字工程名:给家长/调试认卡带用,幼儿靠颜色+图标(文字仅装饰,§13)
-        lv_obj_t *lbl = lv_label_create(btn);
-        lv_label_set_text(lbl, name);
-        lv_obj_set_width(lbl, 88);
-        lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0x3A3A38), 0);
-        lv_obj_set_style_text_opa(lbl, LV_OPA_70, 0);
-        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, 2);
-        ESP_LOGI(TAG, "槽 ota_%d: %s", idx, name);
+
+        // 工程名(数据驱动,直读 esp_app_desc_t,不再手绘图标 + strcmp 分支)
+        lv_obj_t *name = lv_label_create(btn);
+        lv_label_set_text(name, info.project_name);
+        lv_obj_set_width(name, 88);
+        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_color(name, lv_color_hex(UI_KIT_COLOR_VALUE), 0);
+        lv_obj_align(name, LV_ALIGN_TOP_MID, 0, 10);
+
+        // 版本/编译日期(小字,家长掌机时期是给家长认卡带用;评估台给评估者核对版本)
+        lv_obj_t *ver = lv_label_create(btn);
+        lv_label_set_text_fmt(ver, "%s %s", info.version[0] ? info.version : "-", info.date);
+        lv_obj_set_width(ver, 88);
+        lv_label_set_long_mode(ver, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_color(ver, lv_color_hex(UI_KIT_COLOR_LABEL), 0);
+        lv_obj_set_style_text_align(ver, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(ver, LV_ALIGN_BOTTOM_MID, 0, -8);
+
+        // ota_N 角标(右上角)
+        lv_obj_t *badge = lv_label_create(btn);
+        lv_label_set_text_fmt(badge, "%d", idx);
+        lv_obj_set_style_text_color(badge, lv_color_hex(UI_KIT_COLOR_ACCENT), 0);
+        lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -4, 2);
+
+        ESP_LOGI(TAG, "槽 ota_%d: %s %s", idx, info.project_name, info.version);
     } else {
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0xE4DFD2), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(COLOR_EMPTY_BG), 0);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
         lv_obj_add_event_cb(btn, on_slot_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
-        lv_obj_t *hole = plain(btn, 30, 30, 0xD2CCBC, LV_RADIUS_CIRCLE);  // 空卡槽凹窝
-        lv_obj_center(hole);
+
+        lv_obj_t *hole = plain(btn, 24, 24, 0x33383E, LV_RADIUS_CIRCLE);
+        lv_obj_align(hole, LV_ALIGN_CENTER, 0, -8);
+
+        lv_obj_t *label = lv_label_create(btn);
+        lv_label_set_text(label, "empty");
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_KIT_COLOR_LABEL), 0);
+        lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+        lv_obj_t *badge = lv_label_create(btn);
+        lv_label_set_text_fmt(badge, "ota_%d", idx);
+        lv_obj_set_style_text_color(badge, lv_color_hex(0x4A4F55), 0);
+        lv_obj_align(badge, LV_ALIGN_BOTTOM_MID, 0, -4);
     }
 }
 
@@ -271,14 +139,14 @@ static void ui_create(void)
     bsp_display_lock(0);
 
     lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0xF6EED9), 0);  // 暖米色(压亮度,§13)
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG), 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    make_mascot(scr);
+    s_status_bar = ui_status_bar_create(scr, "launcher");
 
-    // 3×2 卡带架:x=8/112/216,y=64/152(96×80 + 8px 间距,铺满 320×240)
+    // 3×2 评估槽卡片架:x=8/112/216,y=36/124(96×80 + 8px 间距,状态栏 24px 之下)
     for (int i = 0; i < APP_SLOT_COUNT; i++) {
-        make_slot(scr, i, 8 + (i % 3) * 104, 64 + (i / 3) * 88);
+        make_slot(scr, i, 8 + (i % 3) * 104, 36 + (i / 3) * 88);
     }
 
     bsp_display_unlock();
@@ -286,10 +154,10 @@ static void ui_create(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "=== 幼儿游戏机 launcher 启动 ===");
+    ESP_LOGI(TAG, "=== IoT 评估台 launcher 启动 ===");
 
     // ① 平台一键 bring-up(顺序知识在 core2_board,勿散装重写)
-    core2_board_cfg_t cfg = CORE2_BOARD_CFG_DEFAULT;   // 全开、中亮(70%/灯带≤80)
+    core2_board_cfg_t cfg = CORE2_BOARD_CFG_DEFAULT;
     esp_err_t err = core2_board_init(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "平台初始化失败(%s)%s", esp_err_to_name(err),
@@ -297,19 +165,24 @@ void app_main(void)
         return;
     }
 
-    // ② 选择页 UI + 问候
+    // ② AXP192 遥测(状态栏电量/USB 用;失败不拦选择页,状态栏显示"--")
+    s_power_ready = (power_monitor_init() == ESP_OK);
+    if (!s_power_ready) ESP_LOGW(TAG, "power_monitor 初始化失败,状态栏电量不可用");
+
+    // ③ 选择页 UI + 问候
     ui_create();
     audio_fx_play(SND_HELLO);
     haptics_play(HAPTIC_HELLO);
 
-    // ③ 主循环:消费"待启动"槽位 + 喂省电编排(选择页久置 → 打盹/深度省电)
+    // ④ 主循环:消费"待启动"槽位 + 喂省电编排 + 1Hz 刷新状态栏
     core2_sleep_init(&s_sleep, NULL);
     TickType_t last = xTaskGetTickCount();
+    int64_t last_status_update_ms = 0;
     for (;;) {
         if (s_pending >= 0) {
             int idx = s_pending;
             vTaskDelay(pdMS_TO_TICKS(250));      // 让点击音效播出去
-            err = app_slot_launch(idx);          // 成功不返回(重启进游戏)
+            err = app_slot_launch(idx);          // 成功不返回(重启进评估 app)
             ESP_LOGW(TAG, "槽 ota_%d 启动失败(%s):空槽或镜像损坏,重烧该槽 bin",
                      idx, esp_err_to_name(err));
             audio_fx_play(SND_BUMP_MED);         // 温柔地"没成功"一声
@@ -321,6 +194,24 @@ void app_main(void)
         int delay_ms = core2_sleep_feed(&s_sleep,
                                         have ? (float[]){ a.x, a.y, a.z } : NULL,
                                         true);
+
+        int64_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        if (now_ms - last_status_update_ms >= 1000) {
+            last_status_update_ms = now_ms;
+            int batt_pct = -1;
+            bool vbus = false;
+            if (s_power_ready) {
+                power_telemetry_t t;
+                if (power_monitor_read(&t) == ESP_OK) {
+                    batt_pct = batt_mv_to_pct(t.batt_mv);
+                    vbus = t.vbus_present;
+                }
+            }
+            bsp_display_lock(0);
+            ui_status_bar_update(s_status_bar, (uint32_t)(now_ms / 1000), batt_pct, vbus);
+            bsp_display_unlock();
+        }
+
         vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
     }
 }

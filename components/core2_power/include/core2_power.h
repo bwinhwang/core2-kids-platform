@@ -17,6 +17,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 
@@ -39,6 +41,35 @@ esp_err_t core2_power_bus_5v(bool on);
  *  brightness 0% 不熄屏(见文件头坑 2);关背光前建议先把亮度调 0,
  *  开背光后再恢复亮度,避免瞬间闪亮。 */
 esp_err_t core2_power_backlight(bool on);
+
+/**
+ * @brief 连续读 len 个寄存器(从 reg 起始,单笔 I2C 事务)。
+ *
+ * 供 `power_monitor` 等需要直读 AXP192 ADC/库仑计寄存器的组件用,复用本组件已绑定的
+ * AXP192 设备句柄,避免各自重复 `i2c_master_bus_add_device`。AXP192 是普通寄存器寻址
+ * 芯片(不是 8Encoder 那类 MCU 从机),`i2c_master_transmit_receive` 组合读安全,
+ * 与本文件 `core2_power_bus_5v`/`core2_power_backlight` 内部的 RMW 读法一致。
+ *
+ * @param reg 起始寄存器地址。
+ * @param buf 输出缓冲,长度 len。
+ * @param len 要读的字节数。
+ * @return ESP_OK 成功;ESP_ERR_INVALID_STATE core2_power_init 尚未成功过;
+ *         ESP_ERR_INVALID_ARG buf 为 NULL 或 len 为 0。
+ */
+esp_err_t core2_power_read_regs(uint8_t reg, uint8_t *buf, size_t len);
+
+/**
+ * @brief 整字节写一个寄存器(不做读-改-写)。
+ *
+ * 供 `power_monitor` 写 ADC 使能(reg 0x82)/ 库仑计控制(reg 0xB8)这类"整个寄存器
+ * 只有一个功能、别的组件不会碰"的场景。⚠️ 与 `axp_rmw`(内部用于 REG 0x12)不同,
+ * 本函数**不做 RMW**——若目标寄存器同时管着别的功能位(如 REG 0x12 那种挤在一起的
+ * 电源使能位),必须走 `core2_power_bus_5v`/`core2_power_backlight` 那类专用 RMW 接口,
+ * 不要用本函数整字节覆盖。
+ *
+ * @return ESP_OK 成功;ESP_ERR_INVALID_STATE core2_power_init 尚未成功过。
+ */
+esp_err_t core2_power_write_reg(uint8_t reg, uint8_t val);
 
 #ifdef __cplusplus
 }

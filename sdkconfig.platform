@@ -26,3 +26,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # LVGL snapshot:串口截图导出(components/screenshot,Claude Code 看屏用)
 CONFIG_LV_USE_SNAPSHOT=y
+
+# ui_kit 数值卡/状态栏用字体(ASCII;CJK 暂不引入,见 CLAUDE.md §8 / docs/ROADMAP.md 风险记录)
+# Confirmed via 本仓 launcher/managed_components/lvgl__lvgl/Kconfig(LV_FONT_MONTSERRAT_16/24 存在)
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_24=y

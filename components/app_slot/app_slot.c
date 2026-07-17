@@ -59,3 +59,17 @@ bool app_slot_present(int idx, char *name, size_t name_len)
     }
     return true;
 }
+
+bool app_slot_info(int idx, app_slot_info_t *out)
+{
+    if (!out) return false;
+    const esp_partition_t *p = slot_partition(idx);
+    if (!p) return false;
+    esp_app_desc_t desc;
+    if (esp_ota_get_partition_description(p, &desc) != ESP_OK) return false;  // 空槽/无效
+    strlcpy(out->project_name, desc.project_name, sizeof(out->project_name));
+    strlcpy(out->version, desc.version, sizeof(out->version));
+    strlcpy(out->date, desc.date, sizeof(out->date));
+    strlcpy(out->time, desc.time, sizeof(out->time));
+    return true;
+}
