@@ -9,11 +9,15 @@ APP="${1:?用法: tools/flash_one.sh <app名|launcher> [PORT]}"
 PORT="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 槽位分配(加新评估 app 在此登记 + 更新 flash_map.md)
+# 槽位分配(加新 app 在此登记 + 更新 flash_map.md)
+# 2026-07-17 晚:游戏与 IoT 评估台共存,槽表重排为 ota_0~3=游戏、ota_4~5=IoT 评估台
 declare -A SLOT=(
-    [unit_bench]=0x190000
-    [power_lab]=0x390000
-    # ota_2 0x590000 / ota_3 0x790000 / ota_4 0x990000 / ota_5 0xB90000 空闲(预留)
+    [tilt_maze]=0x190000
+    [busy_knobs]=0x390000
+    [chick_pour]=0x590000
+    [chain_lab]=0x790000
+    [unit_bench]=0x990000
+    [power_lab]=0xB90000
 )
 
 if [[ "$APP" == "launcher" ]]; then

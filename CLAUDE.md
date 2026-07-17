@@ -1,13 +1,15 @@
-# CLAUDE.md — IoT 评估平台(Core2 评估台)
+# CLAUDE.md — 游戏 + IoT 评估平台(Core2 卡带机)
 
-> **本仓库不是单个 app,是一台「IoT 硬件评估台 / 卡带机」平台**:硬件底座 = M5Stack Core2 +
-> M5GO Bottom2;软件 = factory 分区常驻 **launcher 选择页** + 6 个 ota 槽各放一个独立「评估
-> 卡带」(单一职责的评估工具:外设/单元评估、功耗/系统评估……)。改一个评估 app 只重编+单
-> 刷它自己,launcher 与其它 app 零风险。
+> **本仓库不是单个 app,是一台「游戏 + IoT 硬件评估台」卡带机平台**:硬件底座 = M5Stack Core2 +
+> M5GO Bottom2;软件 = factory 分区常驻 **launcher 选择页** + 6 个 ota 槽,**ota_0~3 放四张
+> 幼儿游戏卡带、ota_4~5 放两张 IoT 评估卡带**(单一职责:游戏卡带负责好玩,评估卡带负责
+> 外设/单元评估、功耗/系统评估……)。改一个 app 只重编+单刷它自己,launcher 与其它 app 零风险。
 >
-> **2026-07-17 平台转向**(用户拍板):原「幼儿游戏掌机」定位、6 张幼儿游戏卡带全部下线
-> (git 历史留档,`git log` 可查);硬件平台不变,受众从幼儿改为 **IoT 爱好者/评估者**,
-> 平台重心从"零失败游玩"改为"**可观测评估**"。经过与决策见 `docs/ROADMAP.md`。
+> **2026-07-17 平台转向**(用户拍板,当天两次决策):早上一度整体转向 IoT 评估台——原「幼儿
+> 游戏掌机」定位下线、6 张幼儿游戏卡带全部删除;**当晚用户修订为「游戏与 IoT 评估台共存」**:
+> 四张已实现游戏(tilt_maze/busy_knobs/chick_pour/chain_lab)已从删除前的提交恢复重新上线,
+> fish_pond/pipe_garden 当时仅有 SPEC 未实现、不恢复(git 历史留档,`git log` 可查完整过程)。
+> 硬件平台不变;新增的两张评估卡带按"可观测评估"重心继续开发。经过与决策见 `docs/ROADMAP.md`。
 >
 > 本文件是**平台级说明书**(共守的设计原则、硬件事实、组件层、渲染/电源纪律、做新评估 app
 > 的规矩、各 app 索引)。配合通用规范 `AGENTS.md` 和板级事实 `docs/platform/Core2_v1_0.md`
@@ -15,10 +17,11 @@
 > HARDWARE.md 为准,本文不重复引脚表、只引用。**
 >
 > ⚠️ **硬件平台是「Core2 + M5GO Bottom2」组合体,不是 Core2 单体。** 本机 Core2 核缺背部扩展模块,
-> **IMU 与电池均由 Bottom2 提供**;不接 Bottom2 就没 IMU、没电——绝大多数评估 app 跑不起来。底座是硬依赖。
+> **IMU 与电池均由 Bottom2 提供**;不接 Bottom2 就没 IMU、没电——绝大多数 app(游戏与评估台皆然)跑不起来。底座是硬依赖。
 >
-> **各卡带的东西不在本文**:某个评估 app 的**功能规格**见 `apps/<name>/SPEC.md`,**竣工现状/
-> 定案数值/待实机项**见 `apps/<name>/README.md`。做新评估 app 前先读本文 §2(原则)、§4–§10。
+> **各卡带的东西不在本文**:某个 app 的**功能规格**见 `apps/<name>/SPEC.md`,**竣工现状/
+> 定案数值/待实机项**见 `apps/<name>/README.md`。做新 app 前先读本文 §2(原则)、§4–§10
+> (§2 六条是**评估 app** 的设计纪律;四张游戏是转向前的 as-built 遗产,原样保留、不回填新原则)。
 >
 > **暂不联网**:本阶段不引入 Wi-Fi/BLE/ESP-NOW/MQTT,先做本地评估台;网络阶段规划见
 > `docs/ROADMAP.md` Phase 3(占位)。
@@ -29,13 +32,15 @@
 
 ## 1. 平台定位
 
-一台给 **IoT 爱好者/硬件评估者** 的桌面评估台(硬件形态与幼儿掌机时期完全相同,软件重心转向):
+一台**游戏卡带 + IoT 评估卡带共存**的桌面卡带机(硬件形态与幼儿掌机时期完全相同):
 
 - **物理形态**:Core2 主机 + Bottom2 底座(IMU / 500mAh 电池 / 10×SK6812 灯带 / PORT.A·B·C 扩展口)。
-- **一机多评估工具**:开机进 launcher 选择页(数据驱动渲染各槽工程名/版本)→ 点卡片进某评估
-  app → 评估中数据实时上屏 + 可经串口导出 CSV;崩溃/断电自动回 launcher(app_slot 机制不变)。
+- **一机多卡带**:开机进 launcher 选择页(数据驱动渲染各槽工程名/版本)→ 点卡片进某 app →
+  游戏卡带正常游玩,评估卡带数据实时上屏 + 可经串口导出 CSV;崩溃/断电自动回 launcher
+  (app_slot 机制不变)。
 - **每张评估卡带的共同体验**:接上被评估对象(外接单元 / 观察机身自身功耗)→ **状态实时可见**
-  (数值卡/图表/状态栏)→ **数据可核对可导出**(串口 CSV,离线场景走 SPIFFS 录制)。
+  (数值卡/图表/状态栏)→ **数据可核对可导出**(串口 CSV,离线场景走 SPIFFS 录制)。四张游戏
+  卡带是转向前的 as-built 遗产,体验不受本文档 §2 评估台原则约束。
 - **多样的评估对象靠外接单元 + 板载遥测**:IMU(内置)、PORT.A 的 Grove I2C 单元(8Encoder /
   超声波 / DLight / 手势 …)、PORT.C 的 Chain UART 菊花链(编码器 / 摇杆)、AXP192 自身的电压/
   电流遥测(电池/VBUS)。单元接入套路见 §10。
@@ -44,15 +49,20 @@
 
 | App | 槽 | 外设 | 状态 | 文档 |
 |---|---|---|---|---|
-| **unit_bench** 外设/单元评估台 | ota_0 | PORT.A I2C(8Encoder/DLight/超声波/手势)+ Chain(Encoder/Joystick) | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
-| **power_lab** 功耗/系统评估台 | ota_1 | AXP192 遥测(`power_monitor`)+ 全平台负载开关 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
-| ota_2~5 | — | — | 预留 | — |
+| **tilt_maze** 倾斜迷宫(游戏) | ota_0 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/tilt_maze/SPEC.md` + `README.md` |
+| **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
+| **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
+| **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
+| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(8Encoder/DLight/超声波/手势)+ Chain(Encoder/Joystick) | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
+| **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测(`power_monitor`)+ 全平台负载开关 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写(自动发现槽位,工程名/版本/编译日期直读 `esp_app_desc_t`,无需为新 app 改 launcher 代码) | `launcher/README.md` |
 
-> **历史**:此前 6 张幼儿游戏卡带(tilt_maze/busy_knobs/chick_pour/chain_lab/fish_pond/
-> pipe_garden)已于 2026-07-17 随平台转向整体删除,代码与设计文档在 git 历史中完整留存
-> (`git log --diff-filter=D -- apps/`)。做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;
-> 分区偏移/单刷命令见 `tools/flash_map.md`;组件复用指南见 `docs/platform/BSP_GUIDE.md`。
+> **历史**:2026-07-17 早间平台一度整体转向 IoT 评估台,6 张幼儿游戏卡带(tilt_maze/
+> busy_knobs/chick_pour/chain_lab/fish_pond/pipe_garden)被整体删除;**当晚用户修订为共存**,
+> 四张已实现游戏从删除前的提交恢复重新上线并重排到 ota_0~3,fish_pond/pipe_garden(当时仅有
+> SPEC 未实现)不恢复。完整过程与代码在 git 历史中留存(`git log -- apps/`)。做新评估 app 从
+> §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;组件
+> 复用指南见 `docs/platform/BSP_GUIDE.md`。
 
 ---
 
@@ -336,7 +346,8 @@ components/
 
 ## 9. 多 App 分区 / 构建 / 单刷(`app_slot`)
 
-仓库 = **评估卡带机**:factory 常驻 launcher,6 个 ota 槽各一个独立评估 app bin。机制 = IDF otadata 启动选择
+仓库 = **游戏 + 评估卡带机**:factory 常驻 launcher,6 个 ota 槽各一个独立 app bin(ota_0~3 游戏、
+ota_4~5 评估)。机制 = IDF otadata 启动选择
 (`esp_ota_set_boot_partition`,**无网络成分**)。形态/接入改动/槽位表见 `launcher/README.md` + `components/app_slot/README.md`。
 
 **硬纪律(勿忘)**:
@@ -443,10 +454,16 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 
 | App | 槽 | 外设 | 状态 | 竣工记录 |
 |---|---|---|---|---|
-| **unit_bench** 外设/单元评估台 | ota_0 | PORT.A I2C + Chain | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
-| **power_lab** 功耗/系统评估台 | ota_1 | AXP192 遥测 + 全平台负载 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
-| **launcher** 评估台选择页 | factory | — | 🔄 数据驱动重写中 | `launcher/README.md` |
+| **tilt_maze** 倾斜迷宫(游戏) | ota_0 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/tilt_maze/SPEC.md` + `README.md` |
+| **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
+| **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
+| **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
+| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C + Chain | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
+| **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测 + 全平台负载 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
+| **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写中 | `launcher/README.md` |
 
-> 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11。历史演进(幼儿掌机
-> 时期 6 张游戏卡带的完整设计/踩坑记录、2026-07-17 平台转向决策过程)见 git log 与
-> `docs/ROADMAP.md`。
+> 四张游戏 2026-07-17 早随平台转向被整体删除、当晚用户修订为共存后从删除前提交原样恢复
+> (仅补丁 `CORE2_BOARD_CFG_KIDS_DEFAULT`→`CORE2_BOARD_CFG_DEFAULT` 改名以配合 Phase 0 的宏
+> 改名,代码逻辑不做任何改动),槽位从原分配重排至 ota_0~3。平台层跨应用踩坑(EXTEN/DCDC3/
+> repeated-start/桌面省电)已归入 §7 / §10 / §11。历史演进(幼儿掌机时期 6 张游戏卡带的完整
+> 设计/踩坑记录、2026-07-17 平台转向决策过程)见 git log 与 `docs/ROADMAP.md`。

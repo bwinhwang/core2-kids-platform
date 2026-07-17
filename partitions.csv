@@ -1,11 +1,13 @@
-# Core2 16MB flash —— IoT 评估平台分区表(factory=launcher + 2 评估槽 + 预留 4 槽 + 共享数据区)
+# Core2 16MB flash —— 游戏 + IoT 评估台共存的卡带机分区表(factory=launcher + 6 槽 + 共享数据区)
 #
 # ⚠️ 本表被 launcher/ 与 apps/* 所有工程共用(唯一真源),定案即冻结:
-#    改任何偏移/尺寸 = 所有分区错位 = 必须全量重刷。加新评估 app 只占用预留槽,不改表。
-# 槽位分配(烧录偏移速查见 tools/flash_map.md;2026-07-17 平台转向前身为幼儿游戏卡带机,
-#    历史槽位分配见 git log):
-#    factory = launcher(选择页)             ota_0 = unit_bench(外设/单元评估台)
-#    ota_1   = power_lab(功耗/系统评估台)   ota_2~5 = 预留
+#    改任何偏移/尺寸 = 所有分区错位 = 必须全量重刷。加新 app 只占用预留槽,不改表。
+# 槽位分配(烧录偏移速查见 tools/flash_map.md;2026-07-17 早一度转向 IoT 独占、当晚用户
+#    修订为游戏与 IoT 评估台共存,历史分配见 git log):
+#    factory = launcher(选择页)             ota_0 = tilt_maze(游戏,倾斜迷宫)
+#    ota_1   = busy_knobs(游戏,忙碌旋钮)    ota_2  = chick_pour(游戏,喂小鸡)
+#    ota_3   = chain_lab(游戏,吊臂抓取)     ota_4  = unit_bench(外设/单元评估台)
+#    ota_5   = power_lab(功耗/系统评估台)
 #    storage = 共享数据区(SPIFFS 离线录制,如 power_lab 拔 USB 放电曲线)
 #
 # Name,     Type, SubType,  Offset,    Size,     Flags
