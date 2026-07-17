@@ -289,7 +289,7 @@ void app_main(void)
     ESP_LOGI(TAG, "=== 幼儿游戏机 launcher 启动 ===");
 
     // ① 平台一键 bring-up(顺序知识在 core2_board,勿散装重写)
-    core2_board_cfg_t cfg = CORE2_BOARD_CFG_KIDS_DEFAULT;   // 全开、低亮(60%/灯带≤48)
+    core2_board_cfg_t cfg = CORE2_BOARD_CFG_DEFAULT;   // 全开、中亮(70%/灯带≤80)
     esp_err_t err = core2_board_init(&cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "平台初始化失败(%s)%s", esp_err_to_name(err),

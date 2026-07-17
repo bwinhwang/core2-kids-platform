@@ -40,7 +40,7 @@ bool core2_board_i2c_scan(void)
 
 esp_err_t core2_board_init(const core2_board_cfg_t *cfg)
 {
-    core2_board_cfg_t c = cfg ? *cfg : CORE2_BOARD_CFG_KIDS_DEFAULT;
+    core2_board_cfg_t c = cfg ? *cfg : CORE2_BOARD_CFG_DEFAULT;
 
     // 1) 内部 I2C(AXP192/触摸/RTC/IMU 都在这条总线)
     ESP_RETURN_ON_ERROR(bsp_i2c_init(), TAG, "bsp_i2c_init 失败");

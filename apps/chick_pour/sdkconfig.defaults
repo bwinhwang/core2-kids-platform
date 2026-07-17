@@ -1,2 +1,0 @@
-# chick_pour 工程差异项(共享默认值见 ../../sdkconfig.platform)
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"

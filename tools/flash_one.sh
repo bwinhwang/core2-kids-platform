@@ -9,14 +9,11 @@ APP="${1:?用法: tools/flash_one.sh <app名|launcher> [PORT]}"
 PORT="${2:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 槽位分配(加新游戏在此登记 + 更新 flash_map.md)
+# 槽位分配(加新评估 app 在此登记 + 更新 flash_map.md)
 declare -A SLOT=(
-    [tilt_maze]=0x190000
-    [busy_knobs]=0x390000
-    [chick_pour]=0x590000
-    # ota_3 0x790000 空闲(2026-07-17 槽位清洗;pipe_garden 候选未立项)
-    [chain_lab]=0x990000
-    [fish_pond]=0xB90000
+    [unit_bench]=0x190000
+    [power_lab]=0x390000
+    # ota_2 0x590000 / ota_3 0x790000 / ota_4 0x990000 / ota_5 0xB90000 空闲(预留)
 )
 
 if [[ "$APP" == "launcher" ]]; then

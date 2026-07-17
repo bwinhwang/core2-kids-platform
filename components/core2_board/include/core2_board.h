@@ -1,7 +1,7 @@
 // core2_board —— Core2 v1.0 + M5GO Bottom2 一键 bring-up(平台外设层的总入口)
 //
 // 新应用只需:
-//     core2_board_cfg_t cfg = CORE2_BOARD_CFG_KIDS_DEFAULT;
+//     core2_board_cfg_t cfg = CORE2_BOARD_CFG_DEFAULT;
 //     ESP_ERROR_CHECK(core2_board_init(&cfg));
 // 即完成:内部 I2C → 屏+LVGL+背光 → I2C 自检扫描 → AXP192 直控绑定 →
 //        (按需)灯带供电+驱动 / 喇叭 / 震动 / IMU,全部按实机验证过的顺序。
@@ -28,21 +28,22 @@ extern "C" {
 #endif
 
 typedef struct {
-    int     brightness_pct;      // 初始背光 0~100(幼儿应用建议 ≤60,护眼也省电)
+    int     brightness_pct;      // 初始背光 0~100(评估台默认 70,清晰优先于护眼低亮)
     bool    enable_leds;         // Bottom2 灯带(自动开 M-Bus 5V/EXTEN)
-    uint8_t led_max_brightness;  // 灯带全局亮度上限 0~255(幼儿应用建议 ≤48)
+    uint8_t led_max_brightness;  // 灯带全局亮度上限 0~255
     bool    enable_audio;        // NS4168 喇叭(audio_fx,整局保持 open)
     bool    enable_haptics;      // 震动马达(AXP192 LDO3,经 BSP feature)
     bool    enable_imu;          // MPU6886(来自 Bottom2;没接底座会失败)
 } core2_board_cfg_t;
 
-// 幼儿应用默认:全开、低亮
-#define CORE2_BOARD_CFG_KIDS_DEFAULT (core2_board_cfg_t){ \
-    .brightness_pct = 60, .enable_leds = true, .led_max_brightness = 48, \
+// 评估台默认:全开、中亮(数值/图表可读优先;单元评估用不到灯带可自行 enable_leds=false)
+#define CORE2_BOARD_CFG_DEFAULT (core2_board_cfg_t){ \
+    .brightness_pct = 70, .enable_leds = true, .led_max_brightness = 80, \
     .enable_audio = true, .enable_haptics = true, .enable_imu = true }
 
 /**
- * @brief 按正确顺序初始化平台外设。cfg 传 NULL 等价于 KIDS_DEFAULT。
+ * @brief 按正确顺序初始化平台外设。
+ * @param cfg 传 NULL 等价于 CORE2_BOARD_CFG_DEFAULT。
  * @return ESP_OK 全部就绪;ESP_ERR_NOT_FOUND IMU 没找到(多半是没接 Bottom2 底座);
  *         其余错误码来自对应外设 init。失败的外设有显式 ESP_LOGE,不静默。
  */

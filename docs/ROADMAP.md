@@ -1,172 +1,195 @@
-# 下一阶段路线(Phase 2)— 基于幼儿实机偏好反馈
+# 路线图 — 平台转向:幼儿游戏掌机 → IoT 评估平台
 
-> 2026-07-12 定稿。输入事实:6 张卡带实机给孩子玩过后,**tilt_maze / chain_lab / busy_knobs
-> 明显更受喜爱、反复玩**;peekaboo / feed_monster / magic_wand 只是试一下就放下。
-> 本文回答两件事:①这个反馈说明了什么(选型规律);②下一阶段做什么、不做什么、按什么顺序。
-
----
-
-## 0. 反馈解读:三强赢在哪、三冷输在哪
-
-把六张卡带按输入方式和玩法结构对照,共性非常整齐:
-
-| | tilt_maze | busy_knobs | chain_lab | peekaboo | feed_monster | magic_wand |
-|---|---|---|---|---|---|---|
-| 输入 | 倾斜整机 | 8 实体旋钮 | 摇杆+曲柄 | 捂光传感器 | 隔空手远近 | 隔空手势 |
-| 手里有东西可抓? | ✅ 整机 | ✅ 拧 | ✅ 推/摇 | ❌ 对空气 | ❌ 对空气 | ❌ 对空气 |
-| 映射维度 | 2D 连续 | 8 路连续 | 2 维(横向+深度) | **1 bit** | 1D(不可见) | 离散分类(还断续) |
-| 有决策/技能成长? | 选路、控球越练越稳 | 摆图案 | 选层+对齐 | 无 | 无 | 无 |
-| 收集/彩蛋元循环 | 星星+庆祝 | 图案/小鸟/和弦 | 展示架+金星 | 揭晓计数 | 喂 5 个 | 无 |
-
-归因四条(按重要度排序):
-
-1. **实体感是第一位的**。三强的手上都有真实的力/位移反馈:倾斜整机是全身本体感、旋钮有
-   阻尼、摇杆曲柄有机械行程。三冷全是"对空气做动作"——捂光、隔空比划——没有触觉回路,
-   3~4 岁幼儿得不到"我抓着它、它听我的"的掌控感,而这正是这个年龄段游戏快感的核心。
-2. **连续比例映射,信息维度要够**。倾斜多一点球滚快一点、旋钮拧多少柱子长多少——输入量
-   与画面量成比例,孩子能"驾驶"。捂/松只有 1 bit(peekaboo v1 试玩结论原话:信息量太低,
-   玩一次即弃);手势是离散分类,连"比例"都不存在。
-3. **要有随技能成长的真实决策**。迷宫选路会越走越熟、抓娃娃选层对齐是每一把的真决策;
-   三冷的动作学会即到顶,新鲜感耗尽就没了。
-4. **收集/庆祝/彩蛋元循环放大重复游玩**。星星、展示架、金星、小鸟、图案彩蛋——这些"意外
-   之喜"是孩子回头再玩的钩子。三强这层都厚,三冷这层薄或没有。
-
-另外一个交叉证据:magic_wand 的失败**不是执行问题**——传感层标定健康(在场信号占空比
-100% 零中断),孩子仍然无感。说明隔空输入这条路是**类型级不匹配**,不是调参能救的。
-
-### 🔴 由此确立的选型铁律(建议回写 CLAUDE.md §10)
-
-> **新卡带的主输入必须同时满足:可抓握(有真实触觉/本体反馈)+ 连续比例映射 + 决策空间
-> 随技能成长。** 隔空/环境类传感器(光、超声、手势、PIR)**不再作为主输入立项**,只可作
-> 彩蛋级辅助输入(如 busy_knobs 用 IMU 摇一摇洗牌的用法——主输入之外的惊喜层)。
+> 2026-07-17 用户拍板转向。硬件平台不变(Core2 v1.0 + M5GO Bottom2 + 现有 Grove/Chain 单元),
+> 受众从幼儿改为 **IoT 爱好者/评估者**,平台定位改为 **IoT 评估平台**。本文回答三件事:
+> ①为什么转向(决策记录);②三个 Phase 分别做什么;③历史(幼儿掌机时期的路线图存档)。
 
 ---
 
-## 1. 路线总纲
+## 0. 转向决策(2026-07-17,用户拍板)
 
-四条线,优先级从高到低:**A 收尾清账 → B 平台补课 → C 冷宫止损 → D 深耕与新卡带**。
-核心思路:钱(开发时间)全部投向被验证喜爱的形态;三冷只花"定去留"的钱,不再开发。
+三个已确认决策:
 
-### A. 收尾清账(零开发,只烧录+点检,立刻做)
+1. **游戏卡带全部移除**(git 历史留档,沿用 2026-07-17 槽位清洗先例)。tilt_maze / busy_knobs /
+   chick_pour / chain_lab / fish_pond / pipe_garden 六个 app 目录整体删除;分区表/存储布局沿用
+   不改,首批 IoT 应用占 ota_0/ota_1 两个槽。
+2. **暂不联网**:不引入 Wi-Fi/BLE/ESP-NOW/MQTT,先做本地评估台。网络阶段见下方 Phase 3(占位)。
+3. **评估重心**:(a) 外设/单元评估台(`unit_bench`);(b) 功耗/系统评估(`power_lab`,利用
+   AXP192 可读电压电流)。
 
-| # | 事项 | 现状 | 动作 |
-|---|---|---|---|
-| A1 | chain_lab v2.2 趣味批 | build 通过待烧录 | `tools/flash_one.sh chain_lab`,按 README 待实机清单点检(玩偶辨识度/咔声/金星) |
-| A2 | busy_knobs 趣味第二批(FUN2) | build 通过待烧录 | 烧录,按 `FUN2_SPEC.md` §9 点检(小脸/小鸟/和弦/夜晚音色),过了归档 FUN2_SPEC |
+摸底结论:硬件 bring-up(`core2_board`)、8 个单元驱动、AXP192 直控(`core2_power`)、卡带机制
+(`app_slot`)、截图自查(`screenshot` + `tools/screenshot.py`)全部直接复用;全仓零网络代码、
+零 NVS 使用(不用清理);缺口 = NVS 封装、数值/文字 UI 控件层、AXP192 遥测组件、数据导出约定。
+**受众识字是最大架构红利**:UI 可用文字,launcher 可数据驱动渲染工程名,彻底消灭"加 app 必须
+重刷 launcher 加图标分支"的摩擦。
 
-这两批正是三强的增量,孩子在等,性价比最高。
+顺带修的已知 bug:`tools/new_app.sh` 模板引用已删除的 `app_slot_enable_button_exit()`,脚手架
+build 必然链接失败——已在 Phase 0 修复。
 
-### B. 平台补课(直接影响每天使用体验)
+### 新设计第一性原则(已回写 `CLAUDE.md` §2)
 
-| # | 事项 | 说明 |
-|---|---|---|
-| B1 | 🔴 **修家长菜单长按难触发**(已知遗留) | 排查 FT6336U 触摸/LVGL 长按判定(热区太窄/手指微移打断);先修好,B2 才有意义 |
-| B2 | 🔴 **回 launcher 入口铺开到全部卡带** | 现在只有 tilt_maze 有家长菜单 Home,其余卡带玩完只能断电重开——日用最大痛点。把 `parent_menu` 从 tilt_maze 提炼成 `components/parent_menu` 共享组件(亮度/音量/震动/Home),六张卡带全接 |
-| B3 | launcher 实机验收 | launcher 至今 ⏳ 待实机;顺带补齐专属图标(chain_lab 换抓娃娃机主题图标等),重刷 launcher 一次到位 |
-| B4 | 家长设置 NVS 持久化 | 现重启回默认;做进 parent_menu 组件里,全卡带白得 |
-
-### C. 冷宫处置(✅ 2026-07-12 用户拍板:直接回收)
-
-**peekaboo / feed_monster / magic_wand 三个槽位(ota_2 / ota_3 / ota_5)直接回收**,不再安排
-最后一轮试玩,不再写任何新代码。三个 app 的代码与文档原样留在仓库作历史资产(peekaboo v2 的
-访客/收集系统、feed_monster 的超声波流水线、magic_wand 的在场信号标定数据都可能被未来卡带
-复用),只是不再占用实机槽位;新卡带烧录直接覆盖对应槽,launcher 图标分支届时替换。
-
-### D. 深耕三强 + 新卡带(本阶段的主开发投入)
-
-**D1. tilt_maze 深化批**(头牌,孩子已完全掌握 16 关同难度库,下一步给"新鲜感"):
-- 新关卡包:离线脚本流水线 + `verify_mazes.py` 护栏都是现成的,再出一批(可略提难度带);
-- 世界换装/烘焙精灵美术(SPEC §18.4 换帽、待机微动)——纯观感新鲜感,守 §6 帧预算;
-- 彩蛋关机制(可选,谨慎):每轮洗牌袋里混 1 张"惊喜关"(如捡钥匙开门、会动的乌龟障碍
-  ——碰到只是被驮着走一段,仍零失败)。先出关卡包,机制类放最后。
-
-**D2. chain_lab / busy_knobs 按既定节奏走趣味增量**:两个 app 已验证"实机验收 → 观察
-孩子 → 小批次趣味增量 → 再验收"的迭代法,A1/A2 验收后看孩子反应决定下一批内容,
-不预先立项。
-
-**D3. 新卡带候选(2026-07-12 定稿:聚焦 IMU 与摇杆;触摸屏方向暂缓)**
-
-推演纪律:每个候选过选型铁律 + 渲染红线核算 + 与三强的差异化检查;否决方案留档防止
-以后重提(卷轴滚屏类违渲染红线、平衡塔类天然带失败感、摇沙锤/雨声筒类重蹈 1 bit 浅
-玩法覆辙、IMU+摇杆双连续同时超 3~4 岁运动带宽)。
-
-| 候选 | 输入 | 一句话玩法 | 核心差异化 | 建议槽 |
-|---|---|---|---|---|
-| **chick_pour 小鸡回窝** | IMU(零外设) | 倾斜整机把一群(~10 只)小鸡"倒"进窝,按颜色分两个窝 | 群体物理(一个动作带动一群)+ 倾倒图式 + 颜色分类决策;复用 tilt_maze 全部物理手感 | ota_2 |
-| **busy_bus 小小巴士** | Chain 摇杆(按键=喇叭) | 单屏俯视小镇,摇杆开巴士接动物、按颜色送到家 | 载具图式 + 速度型控制(vs tilt 的力型)+ 目的地匹配;复用滑行碰撞 | ota_3 |
-| **fish_pond 钓鱼池** | Chain 摇杆+曲柄 | 摇杆对准游动的鱼、曲柄放线/收线钓上来,鱼桶集满开派对 | **移动目标**(三强全是静目标)= 追踪/预判新技能轴;复用 chain_lab 全栈(深度层/dwell 兜底/金鱼彩蛋位) | ota_5 |
-| **pipe_garden 花园水管** | **8Encoder** 旋钮 | 拧旋钮转各段水管,接出从水龙头到花的水路,接通就流水、花开、来蝴蝶 | **旋钮相互依赖**(合力接一条路)vs busy_knobs 8 路各自独立 → 空间规划新轴 | 候选池·竞 ota_5 |
-| **slingshot_feed 弹弓喂喂** | Chain **摇杆**(拉-放) | 摇杆后拉=瞄准+蓄力,松手弹果子喂小动物,喂饱了长大/庆祝 | **拉-放弹道瞄准**;把已验证"受欢迎但错在隔空"的喂食图式(feed_monster)用可抓握输入复活 | 候选池·竞 ota_5 |
-| ~~戳戳屏(触摸直玩)~~ | 触摸屏 | — | **暂缓**(2026-07-12 用户决定) | — |
-
-前两个的施工图已立(2026-07-12):`apps/chick_pour/SPEC.md`、`apps/busy_bus/SPEC.md`
-(均含「先验手感再盖楼」的 P1 分期,magic_wand 教训);fish_pond 立项时再补 SPEC。**建议实施顺序:chick_pour → busy_bus → fish_pond**——chick_pour 零外设
-零起玩门槛(tilt_maze 受欢迎的隐藏因素之一:不用家长帮忙插单元,孩子随手拿起就能玩),
-且物理层复用度最高;fish_pond 最稳但与抓娃娃机同属"捕捉收集"家族,放最后避免审美疲劳。
-
-**2026-07-14 补充候选(约束:单输入,摇杆/旋钮/Encoder 三选一,不用 IMU)**:上表新增
-`pipe_garden` / `slingshot_feed` 两个,分别填两条尚未覆盖的技能轴——**旋钮相互依赖造水路 /
-拉-放弹道瞄准**,各自过了选型铁律 + 渲染红线核算 + 与三强差异化。落位现实:ota_2/3 已给
-chick_pour/busy_bus,当前只剩 ota_5(既是 fish_pond 暂定槽、也是 magic_wand 回收候选)——
-三个候选(fish_pond / pipe_garden / slingshot_feed)竞争这一槽,待 chick_pour/busy_bus 实机后
-统一排序。**已否决留档**(防以后重提):**~~marble_machine 咕噜弹珠机(Chain 曲柄)~~——
-2026-07-15 已实现 P1+P2+P3 并 review,判定曲柄「摇上去→脱扣→重力下落」把输入和最好玩的下落段
-脱钩、分拣目标又隐形(零失败下看不出要分色),玩一次即腻;单旋钮/单曲柄方向暂缓**(代码已删,
-git 无留存);八音盒/木琴调音台(纯玩具,决策学会即到顶 → 1 bit 浅玩法表亲)、保龄球(瞄准轴
-与弹弓喂喂重叠 + 摇杆已被 3 卡带占用)、摩天轮定时抓拍(「没抓到那格」天生带失败感)、扭蛋机
-狂摇(纯奖励分发,只配当元循环奖励层)、旋钮保险箱开锁(要求精确对位,违宽容物理/带失败感)。
-两份施工图均已立并含 P1 分期(先验手感/概念可达性再盖楼,magic_wand 教训):
-`apps/pipe_garden/SPEC.md`(P1 验"转管接水路"概念可达性)、`apps/slingshot_feed/SPEC.md`
-(P1 验拉-放弹射手感)。
+1. **可观测优先**:被评估对象的状态屏上实时可见、串口可拿原始数据。
+2. **错误显式呈现**:init 失败/总线卡死/拔线一律屏上红字+错误码,绝不静默(与幼儿"零失败"反向)。
+3. **数据可导出**:数值带时间戳导出(串口 CSV 为主,SPIFFS 录制为离线场景)。
+4. **热插拔容错**(继承):2s 重试 + 连续失败判拔线的既有形态。
+5. **渲染红线**(继承,硬件约束与受众无关):永不每帧整屏重绘;chart/数值卡走脏矩形。
+6. **省电纪律**(继承但可被接管):默认 core2_sleep;评估 app 可禁 DEEP/接管 5V/手动驱动休眠阶段。
 
 ---
 
-## 2. 建议执行顺序(里程碑)
+## 1. Phase 0 —— 清理 + 文档 + 脚手架(纯 WSL 可完成)
 
-```
-R1  A1+A2 两批烧录验收                     ← 零开发,孩子立刻有新东西玩
-R2  B1 长按修复 → B2 parent_menu 组件化+全卡带 Home → B3 launcher 验收+图标 → B4 NVS
-R3  D1 tilt_maze 深化批(先关卡包,再美术,机制彩蛋最后)
-R4  D3 新卡带:chick_pour(ota_2)→ 实机验证受欢迎后再立 busy_bus / fish_pond
-```
+**删除**(git 留档):`apps/{tilt_maze,busy_knobs,chick_pour,chain_lab,fish_pond,pipe_garden}/`、
+`tools/verify_mazes.py`(tilt_maze 专用)。
 
-**明确不做的**:magic_wand P2–P4;peekaboo/feed_monster 任何新投入(槽位已回收);
-任何以光/超声/手势/PIR 为主输入的新立项;触摸屏主输入方向(暂缓);卷轴滚屏类玩法
-(违渲染红线);平衡挑战类玩法(天然带失败感,零失败改造成本高)。
+**重写**:`CLAUDE.md`(§1 定位、§2 原则、§8 幼儿安全→UI 可读性纪律、§10 新 app 指南保留技术红线
+删幼儿玩法、§12 索引清空;保留不动:§3 硬件、§6 渲染纪律 + 追加数值/波形 UI 脏矩形小节、§7 电源、
+§9 分区纪律、§10.1 截图自查、§11 MCP 清单追加 AXP192 ADC/库仑计 + esp_pm/DFS 条目)、本文件、
+`README.md`、`launcher/README.md` 定位段、`tools/flash_map.md` + `tools/flash_one.sh` 槽表(
+ota_0=unit_bench、ota_1=power_lab、ota_2~5 预留)、`partitions.csv`(只改头部注释,字段不动)。
 
-## 3. 回写事项
+**脚手架 + 改名**:`tools/new_app.sh` 删 `app_slot_enable_button_exit()` 调用、模板换 IoT 评估台
+骨架;`components/core2_board/include/core2_board.h` 的 `CORE2_BOARD_CFG_KIDS_DEFAULT` →
+`CORE2_BOARD_CFG_DEFAULT`(引用点仅 launcher + 模板,一次改完,不留别名)。
 
-- [ ] 选型铁律写入 `CLAUDE.md` §10(做新 App 指南)开头;
-- [x] `CLAUDE.md` §1/§12 App 索引:peekaboo / feed_monster / magic_wand 状态改为
-      「📦 封存,槽位回收」(2026-07-12 拍板;同批加入 chick_pour @ota_2 行);
-- [x] `tools/flash_map.md` 补槽位回收备注(ota_2 已给 chick_pour;ota_3/5 → 新卡带候选)。
+**完成标准**:`idf.py -C launcher build` 通过;`tools/new_app.sh smoke_test` + build 通过后删除;
+`grep -r "tilt_maze\|busy_knobs\|chick_pour\|chain_lab\|fish_pond\|pipe_garden\|KIDS_DEFAULT"`
+无残留(历史留档段/技术脚注类引用除外,详见下方"遗留引用处理")。
+
+**遗留引用处理**:部分仍保留的组件文件里含旧 app 名作**历史脚注**(如 `chain_bus.h` 提到
+chain_lab 是"上板验证手段"、`ledstrip_fx.h` 提到 busy_knobs 图案彩蛋是某个 LED 效果的来源、
+`unit_chain_joystick/README.md` 和 `docs/units/Chain_Joystick.md` 提到 chain_lab 的摇杆归中做法)——
+这些注释描述的**工程结论本身依然成立**(摇杆归中做法、Chain host 验证结论等),只是署名的 app
+已下线,不删除技术内容,原样保留(不影响编译/理解)。`docs/platform/BSP_GUIDE.md` 里作为范例
+提到的 `apps/tilt_maze` 已在 Phase 0 改为泛化措辞。
 
 ---
 
-## 4. 2026-07-17 增补:大对象护眼约束落地 + 槽位清洗(用户拍板)
+## 2. Phase 1 —— 平台组件补课(后端先行,launcher 收尾)
 
-**新平台硬约束**(已回写根 `CLAUDE.md` §2 原则 5、§8):出于幼儿视力保护,主角 / 可交互目标 /
-状态图标**最小边 ≥ ~64px**,核心信息对象宁可占屏 1/3+(小物体逼孩子眯眼、凑近屏,费眼又拉近
-视距)。数学后果(320×240 + §6.2 帧预算联立):同屏合规对象 ≤5~6 个、平滑运动 ≤2 个 →
-**"多而小"的群体精灵玩法对新卡带永久出局**;新范式 = **一个大主角 + 少数大目标,信息靠大对象
-内部状态(表情/嘴/长大/变形)表达,而不是靠对象数量**。
+1. `sdkconfig.platform` 加 `CONFIG_LV_FONT_MONTSERRAT_16` + `_24`(ASCII 字号)→ 各工程
+   `rm -f sdkconfig && fullclean`。
+2. `components/core2_power` 加低层原语 `core2_power_read_regs(reg, buf, len)`(复用已有 AXP192
+   句柄,避免二次 add_device)。
+3. **新组件 ×4 + 小扩展 ×3**(每个带 README,实现前按 AGENTS.md 查 MCP):
+   - `components/power_monitor`:`power_monitor_read(power_telemetry_t*)` 一次读全量(batt mV/
+     充放 mA、VBUS mV/mA、充电状态、库仑计)+ `coulomb_reset()`。不做后台采样/历史缓冲(归 app)。
+     AXP192 ADC/库仑计寄存器实现前查 datasheet 核实,查不到就砍并在 README 记「待查证」。
+   - `components/kv_store`:NVS 封装(init 含 NO_FREE_PAGES 擦除重试、每 app 一个 namespace):
+     `get/set_i32、get/set_f32(blob)、get/set_str、erase_ns`。不做 schema 迁移。
+   - `components/ui_kit`:4 个控件,全守渲染红线 —— `ui_status_bar`(顶 24px:app 名/uptime/电池,
+     1Hz 只脏自己)、`ui_value_card`(标签+大数值+单位,阈值变色)、`ui_chart`(lv_chart 封装,
+     环形推点)、`ui_list_menu`(可点击行,行内可挂 lv_switch)。v1 全 ASCII,CJK 不进(见风险 1)。
+   - `components/data_log`(v1 串口 CSV):`begin(name, cols)` 打 `#CSV-BEGIN` 哨兵 →
+     `row(fmt,…)` 自动时间戳 → `end()`;主机侧扩展 `tools/serial_capture.py` 按哨兵提取 .csv。
+     SPIFFS 录制(rec_start/stop/dump)推迟到 Phase 2 P4。
+   - `components/units/unit_probe`:PORT.A 已知地址表(0x23 DLight/0x41 8Encoder/0x57
+     Ultrasonic/0x73 Gesture)+ 全总线扫描标注"已知/未知"。
+   - `components/app_slot`:加 `app_slot_info(idx, out)` 取 project_name+version+date(launcher
+     数据驱动用)。
+   - `components/core2_sleep`:加 `core2_sleep_force_stage(s, stage)`(复用组件内固化的亮度→
+     DCDC3→灯带→5V 顺序,power_lab 手动进 NAP/DEEP 用,不许 app 散装重拼)。
+4. **launcher 重写**(`launcher/main/app_main.c`,它是新组件的第一个集成测试场):删
+   mascot/7 个图标函数/strcmp 分支/马卡龙色表;槽卡片数据驱动渲染(工程名+版本/编译日期+
+   `ota_N` 角标);空槽显示 `empty / ota_N`;顶部 `ui_status_bar`(电池/USB);深灰工程风配色。
+   保留 3×2 网格、`app_slot_present` 自动发现、点击进槽、久置省电、崩溃回 factory。
 
-**槽位清洗**(五个 app 从仓库删除,git 历史即留档):
+**完成标准**:全组件+launcher build 通过 → 用户 Windows 侧**全量刷 launcher 一次**(改 factory
+的一次性成本,此后加 app 永不再刷)→ `tools/screenshot.py` 截图验收:状态栏电压合理、空槽显示
+正确;插/拔 USB 电压变化说得通。
 
-- **peekaboo / feed_monster / magic_wand**:三冷,代码一并删除(覆盖 §C"代码原样留仓"的决定);
-- **busy_bus**(巴士 ~28px、乘客 20×26)、**slingshot_feed**(果子 16×16、动物 34×40):主角
-  尺寸违新约束 4 倍上下,且均未实机验证,沉没成本最低时点删除;载具图式 / 拉-放弹道图式留档在
-  git 历史与本文 §D3,将来可按新约束重生。
+---
 
-**在役保留**:tilt_maze / busy_knobs / chick_pour / chain_lab。其中 tilt_maze(球 ~16px)、
-chick_pour(小鸡 r=8 ×10 只,群体物理与 64px 数学上互斥)不满新约束,但已实机验证受喜爱,
-按**在役个案观察**处理(实机留意眯眼/凑屏,再定回炉与否),不自动回炉。
+## 3. Phase 2 —— 两张卡带(`tools/new_app.sh` 起工程,登记槽表)
 
-**ota_5 立项 fish_pond「大鱼池塘」**(SPEC:`apps/fish_pond/SPEC.md`):原 §D3 候选 fish_pond
-按新约束重设计为"少而大"形态——96~128px 大鱼、表情戏剧承载信息、移动目标追踪新技能轴、集 3
-放生派对——**首张约束原生卡带**;原三候选竞 ota_5 的格局解除。**pipe_garden 保留候选池**
-(管段 ~80px 天然合规,竞空出的 ota_3,未立项)。
+### unit_bench(ota_0,外设/单元评估台)
+- **范围**:PORT.A I2C 全扫描+已知单元识别(未知地址 hex 列出);Chain 链枚举(设备类型+固件
+  版本);每单元详情视图(数值卡+chart 趋势,2~5Hz 推点);热插拔(复用既有形态)+ I2C 卡死
+  自愈**屏上显示事件**;超声波零点标定(±步进,存 kv_store);详情页 Log 按钮启停 CSV 流。
+- **布局**:顶部状态栏 24px / 底部按钮条 32px(Back/Rescan/Log/Cal);列表页中间
+  `ui_list_menu`;详情页左列 2~3 数值卡 + 右侧 ~180×150 chart。
+- **省电**:`manage_bus_5v=false` 且禁 DEEP(深睡切 5V 会杀被测单元),仅留 NAP 降亮。
+- **里程碑**:B1 扫描+列表(验收:插/拔 DLight 截图)→ B2 三个纯 I2C 传感器详情+chart+热插拔
+  → B3 8Encoder(分笔读纪律)+ Chain 枚举与 Enc/Joy 视图 → B4 CSV 导出 + 标定持久化(重启偏置
+  仍在)。
 
-**槽位现状**:ota_0 tilt_maze / ota_1 busy_knobs / ota_2 chick_pour / **ota_3 空** /
-ota_4 chain_lab / **ota_5 fish_pond(未开工)**。launcher 图标分支待 fish_pond 图标批一起
-清理重刷(死分支无害)。
+### power_lab(ota_1,功耗/系统评估台)
+- **范围**:遥测面板(1Hz);负载开关矩阵看电流跳变(背光 0/10/60/100%、EXTEN 5V、灯带
+  0/48/255、喇叭测试音、震动、CPU 锁频——esp_pm 实现前必查 MCP,不顺就降级两档或砍掉);休眠
+  演练(`force_stage` 触发 NAP/DEEP,深睡电流存内存,唤醒后屏上回放均值/时长);续航估算(放电
+  电流+库仑计外推 500mAh);串口 CSV + SPIFFS 离线录制。
+- **布局**:页 1 左列开关矩阵 + 右侧大电流数值卡(Montserrat 24)+ 电流 chart;页 2 休眠触发/
+  回放卡/续航卡/录制启停。
+- **里程碑**:P1 只读遥测(验收:插/拔 USB 两张截图,拔线后放电电流 >0)→ P2 负载矩阵+chart
+  (开灯带前后台阶清晰)→ P3 休眠演练+续航估算 → P4 SPIFFS 离线录制+回连 dump(拔 USB 录 10
+  分钟放电曲线)。
+
+每个里程碑闭环:WSL build → 打印 `tools/flash_one.sh` 单刷命令给用户 Windows 执行 →
+screenshot.py 截图 + serial_capture.py 抓 CSV 验收。收尾回填 `CLAUDE.md` §12 竣工索引。
+
+---
+
+## 4. Phase 3(占位不展开)
+
+网络阶段:Wi-Fi/ESP-NOW/MQTT 评估;届时再评估网络栈对各槽 2MB 的体积冲击与 lwIP 缓冲进 PSRAM。
+
+---
+
+## 5. 风险与决策点
+
+1. **CJK 字体**:v1 全 ASCII(全量中文字库 0.7–1.2MB 塞不进 factory 1.5MB);确需中文时用
+   lv_font_conv 按需子集,Phase 2 后显式决策。
+2. **NVS vs SPIFFS**:各司其职——设置/标定走 NVS(16KB),波形/放电曲线走 SPIFFS storage
+   (2.4MB,首次 mount 格式化数秒需屏上提示)。
+3. **AXP192 电流测量的坑**(写进 power_lab 屏上提示):只测电池路和 VBUS 路,无 per-rail;
+   USB 插着时电池电流≈0 → 看 VBUS 电流;真实续航必须拔 USB → 没串口 → SPIFFS 录制是唯一手段
+   (P4 存在理由);几 mA 小负载(震动)可能淹在 ADC 噪声里,chart 加滑动平均。
+4. **launcher 重刷时机**:Phase 1 一次性全量刷 factory,向用户明示;之后永不再为加 app 重刷。
+5. **烧录现实**:WSL 只 build,所有烧录命令打印出来由用户 Windows 侧手动执行(既有工作流)。
+
+## 6. 关键文件
+
+- `CLAUDE.md`、本文件(文档主战场)
+- `launcher/main/app_main.c`(数据驱动重写)
+- `tools/new_app.sh`(修缺符号 bug + 换模板)、`tools/flash_one.sh`、`tools/flash_map.md`
+- `components/core2_power/`(read_regs 原语)、`components/core2_board/include/core2_board.h`
+  (宏改名)
+- 新增:`components/{power_monitor,kv_store,ui_kit,data_log}/`、`components/units/unit_probe/`
+- 新工程:`apps/unit_bench/`、`apps/power_lab/`(含各自 SPEC.md/README.md,沿用仓库惯例)
+
+## 7. 验证方式
+
+- **Phase 0**:launcher + smoke_test 脚手架工程均 build 通过;grep 无游戏残留。
+- **Phase 1**:全组件 build;用户全量刷 launcher 后 screenshot.py 截图验收状态栏/空槽卡片。
+- **Phase 2**:每里程碑单刷 → 截图(视觉项)+ serial_capture.py 抓 CSV(数据项)+ 真人操作
+  (热插拔/休眠这类截图看不见的);标定持久化用"重启后偏置仍在"验证。
+
+---
+
+## 附录:幼儿掌机时期路线图存档(2026-07-12 定稿,已被本次转向取代)
+
+> 以下内容是转向前的最后一版路线图(Phase 2,基于幼儿实机偏好反馈),**历史存档,不再指导
+> 当前开发**,保留供查阅当时的选型分析方法论(实体感/连续比例映射/技能成长/收集元循环四条
+> 归因)与槽位清洗决策脉络。
+
+### 反馈解读:三强赢在哪、三冷输在哪(2026-07-12)
+
+六张卡带按输入方式和玩法结构对照:tilt_maze / busy_knobs / chain_lab 明显更受幼儿喜爱、反复玩;
+peekaboo / feed_monster / magic_wand 只是试一下就放下。归因四条(按重要度排序):①实体感是第一
+位的(三强都有真实的力/位移反馈,三冷全是"对空气做动作");②连续比例映射,信息维度要够;
+③要有随技能成长的真实决策;④收集/庆祝/彩蛋元循环放大重复游玩。
+
+由此确立的选型铁律(幼儿玩法专属,IoT 评估台阶段不适用):新卡带的主输入必须同时满足可抓握+
+连续比例映射+决策空间随技能成长;隔空/环境类传感器不再作为主输入立项。
+
+### 2026-07-17 增补:大对象护眼约束落地 + 槽位清洗
+
+出于幼儿视力保护,主角/可交互目标/状态图标最小边 ≥ ~64px;数学后果:同屏合规对象 ≤5~6 个、
+平滑运动 ≤2 个 → "多而小"的群体精灵玩法对新卡带永久出局。**槽位清洗**:peekaboo / feed_monster
+/ magic_wand(三冷)、busy_bus(巴士~28px)、slingshot_feed(果子16×16)因主角尺寸违新约束或
+未实机验证、沉没成本最低时点删除;fish_pond 按新约束重设计为"少而大"形态立项 ota_5。
+
+在役保留(转向前):tilt_maze / busy_knobs / chick_pour / chain_lab。这一状态在 **2026-07-17
+平台转向**中被整体取代——见本文件 §0~§4。完整的历史分析、候选卡带评审(pipe_garden /
+slingshot_feed 等)、marble_machine 否决记录等均可在 git 历史中查阅本文件转向前的版本
+(`git log -- docs/ROADMAP.md`)。
