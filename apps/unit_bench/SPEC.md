@@ -20,6 +20,7 @@
 | Ultrasonic(RCWL,测距) | PORT.A I2C | 0x57 | `unit_ultrasonic` |
 | Gesture(PAJ7620U2,手势) | PORT.A I2C | 0x73 | `unit_gesture` |
 | 8Encoder(STM32F030 从机) | PORT.A I2C | 0x41 | `unit_8encoder` |
+| CO2L(SCD41,CO₂/温/湿) | PORT.A I2C | 0x62 | `unit_scd41` |
 | Chain Encoder(U207) | PORT.C UART 菊花链 | id=1(单节点直连) | `unit_chain_encoder` |
 | Chain Joystick(U205) | PORT.C UART 菊花链 | id=1(单节点直连) | `unit_chain_joystick` |
 
@@ -46,6 +47,7 @@
 | Ultrasonic | Dist(mm,含标定偏移) | 有(mm 趋势) | Cal-/Cal+ 零点标定,持久化 `kv_store` |
 | Gesture | Last(文字)+ Count | 无(事件型,不适合连续 chart) | — |
 | 8Encoder | Enc0/Enc1(累计)+ BtnCnt + SW | 无(多通道,不适合单线 chart) | — |
+| SCD41(CO2L) | CO2 + Temp(C)+ Humid(%),3 卡 | 有(CO₂ 趋势,0~2000ppm) | 周期模式每 ~5s 出一次新数,`data_ready` 就绪才读 |
 | Chain Encoder | Count + Button | 有(count 趋势) | — |
 | Chain Joystick | X/Y(归一化 %)+ Z Btn | 无(2D,不适合单线 chart) | 进页采一次居中值软件归中 |
 
@@ -53,8 +55,8 @@
 
 ### 2.3 密度合规(CLAUDE.md §8)
 
-单屏最多 4 数值卡 + 1 chart。本 app 各详情页最多同时用到 4 张卡(8Encoder)或 1 卡+1 chart
-(DLight/Ultrasonic/Chain Encoder),均在预算内。
+单屏最多 4 数值卡 + 1 chart。本 app 各详情页最多同时用到 4 张卡(8Encoder)、3 卡+1 chart
+(SCD41)或 1 卡+1 chart(DLight/Ultrasonic/Chain Encoder),均在预算内。
 
 ## 3. 热插拔
 
@@ -68,6 +70,10 @@
   再单独读"两笔事务规则(已在 `unit_8encoder` 驱动内部实现,应用层不重复处理)。
 - **超声波无回波**:`unit_ultrasonic_read_mm` 返回 `ESP_ERR_NOT_FOUND` 不算失败(器件仍在,只
   是暂无目标),不计入拔线判定,画面展示为量程上限而非红字错误。
+- **SCD41 未就绪不算失败**:SCD41 周期模式每 ~5s 才产出一次新数据,详情页每帧先 `data_ready`
+  探就绪、ready 才 `read`。**只有 I2C 通信失败(NACK/超时)计入拔线判定**;"本周期尚未就绪"
+  (ready=false)是正常态,不计失败、沿用上次读数。进页后首个读数约 5s 后出现(其间卡片显示
+  "--")。挂载时 init 先 stop 再 start(见 `unit_scd41` README),会阻塞约 500ms。
 
 ## 4. 数据导出(`data_log`)
 

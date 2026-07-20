@@ -26,6 +26,7 @@ typedef enum {
     UB_KIND_ULTRASONIC,
     UB_KIND_GESTURE,
     UB_KIND_8ENCODER,
+    UB_KIND_SCD41,
     UB_KIND_UNKNOWN,      // 探到应答但不是已知单元地址
 } ub_kind_t;
 

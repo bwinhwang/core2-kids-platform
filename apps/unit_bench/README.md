@@ -5,8 +5,12 @@
 > 烧录:`tools/flash_one.sh unit_bench`(= esptool write-flash 0x990000)。
 
 产出:从 `tools/new_app.sh` 生成的空骨架,实现到 build 通过的完整评估台——列表页扫描
-PORT.A(I2C)+ PORT.C(Chain UART)、6 个详情页(DLight/Ultrasonic/Gesture/8Encoder/
-Chain Encoder/Chain Joystick)、热插拔发现与丢失、串口 CSV 导出、超声波零点标定。
+PORT.A(I2C)+ PORT.C(Chain UART)、7 个详情页(DLight/Ultrasonic/Gesture/8Encoder/
+SCD41/Chain Encoder/Chain Joystick)、热插拔发现与丢失、串口 CSV 导出、超声波零点标定。
+
+> **2026-07-17 追加 SCD41(Unit CO2L,0x62,CO₂/温/湿)**:新增 `components/units/unit_scd41`
+> 驱动 + 详情页(CO₂/温/湿 3 卡 + CO₂ 趋势 chart)。与其它单元不同,SCD41 周期模式每 ~5s 才
+> 出一次新数据,采用 "start 一次 + 轮询 data_ready 才 read" 模型(详见 SPEC §3、驱动 README)。
 
 **本轮完全在 WSL 环境下开发,没有实机设备可烧录验证**——所有"实机行为"的判断只到"代码逻辑
 自洽 + build 通过"为止,详见文末「待实机点检」,如实标注、不假装已验证。
@@ -133,6 +137,16 @@ API。列表页在建 UI 时一次性创建 `UB_SCAN_MAX_ROWS=8` 个通用扫描
       是否生效);Z 按键正确。
 - [ ] Chain 节点插拔实测:拔线后详情页显式判"未接"、haptics 报警;插回后需要的时间(后台
       2s 扫描周期)是否符合预期体验。
+
+**SCD41(Unit CO2L)**:
+- [ ] 接上后列表页出现 "0x62 CO2L",点进详情页;进页约 5s 后 CO2/Temp/Humid 三卡从 "--" 变出
+      首个读数(周期模式首数据延迟,属正常,非卡死)。
+- [ ] 数值合理:室内 CO₂ 400~1500ppm、温度接近室温(SCD41 自发热略偏高属正常)、湿度合理。
+- [ ] 对着单元呼气,CO₂ 在随后几个 5s 周期明显上升、离开后缓慢回落;CO₂ 趋势 chart 同步(验证
+      CRC 校验未误伤真实数据 + 5s 周期读取模型正确)。
+- [ ] 运行中拔线 → 详情页连续读失败后显式红字"断线" + 报警震动;插回后 init 重新接管(注意
+      init 有约 500ms stop 阻塞)、数据恢复;"未就绪"期间不应被误判为断线。
+- [ ] Log 按钮导出 CSV 列 `co2_ppm,temp_c,rh_pct`,`serial_capture.py --csv` 能提取。
 
 **超声波标定**:
 - [ ] Cal-/Cal+ 按钮调整偏移,详情页数值实时反映偏移量。

@@ -21,6 +21,7 @@ idf_component_register(
         unit_ultrasonic
         unit_gesture
         unit_8encoder
+        unit_scd41
         chain_bus                # Chain UART 传输层(PORT.C/UART2)
         unit_chain_encoder
         unit_chain_joystick

@@ -12,6 +12,7 @@ static const char *known_name(uint8_t addr)
         case 0x41: return "8Encoder";
         case 0x54: return "8Encoder (bootloader)";
         case 0x57: return "Ultrasonic (RCWL)";
+        case 0x62: return "CO2L (SCD41)";
         case 0x73: return "Gesture (PAJ7620U2)";
         default:   return NULL;
     }

@@ -44,6 +44,7 @@
 #include "unit_chain_joystick.h"
 #include "unit_dlight.h"
 #include "unit_gesture.h"
+#include "unit_scd41.h"
 #include "unit_ultrasonic.h"
 
 #include "unit_bench_scan.h"
@@ -59,6 +60,7 @@ typedef enum {
     UB_VIEW_ULTRASONIC,
     UB_VIEW_GESTURE,
     UB_VIEW_8ENCODER,
+    UB_VIEW_SCD41,
     UB_VIEW_CHAIN_ENCODER,
     UB_VIEW_CHAIN_JOYSTICK,
 } ub_view_t;
@@ -108,6 +110,9 @@ static int32_t s_enc_total[UNIT_8ENCODER_NUM_ENC];
 static bool    s_enc_prev_btn[UNIT_8ENCODER_NUM_ENC];
 static bool    s_enc_prev_sw;
 
+// SCD41(周期模式每 ~5s 一次新数;-1 = 尚无读数)
+static int s_scd_prev_co2 = -1;
+
 // Chain Encoder
 static int16_t s_ce_prev_value;
 static bool    s_ce_prev_btn;
@@ -129,6 +134,7 @@ static void build_dlight(lv_obj_t *content, lv_obj_t *bottom);
 static void build_ultrasonic(lv_obj_t *content, lv_obj_t *bottom);
 static void build_gesture(lv_obj_t *content, lv_obj_t *bottom);
 static void build_8encoder(lv_obj_t *content, lv_obj_t *bottom);
+static void build_scd41(lv_obj_t *content, lv_obj_t *bottom);
 static void build_chain_encoder(lv_obj_t *content, lv_obj_t *bottom);
 static void build_chain_joystick(lv_obj_t *content, lv_obj_t *bottom);
 
@@ -136,6 +142,7 @@ static void poll_dlight(void);
 static void poll_ultrasonic(void);
 static void poll_gesture(void);
 static void poll_8encoder(void);
+static void poll_scd41(void);
 static void poll_chain_encoder(void);
 static void poll_chain_joystick(void);
 
@@ -201,6 +208,7 @@ static const char *kind_name(ub_kind_t k)
         case UB_KIND_ULTRASONIC: return "Ultrasonic";
         case UB_KIND_GESTURE:    return "Gesture";
         case UB_KIND_8ENCODER:   return "8Encoder";
+        case UB_KIND_SCD41:      return "CO2L";
         default: return "?";
     }
 }
@@ -239,6 +247,7 @@ static void on_list_row_click(int row_idx, void *user_data)
         case UB_KIND_ULTRASONIC: switch_view(UB_VIEW_ULTRASONIC); break;
         case UB_KIND_GESTURE:    switch_view(UB_VIEW_GESTURE);    break;
         case UB_KIND_8ENCODER:   switch_view(UB_VIEW_8ENCODER);   break;
+        case UB_KIND_SCD41:      switch_view(UB_VIEW_SCD41);      break;
         default: audio_fx_play(SND_BUMP_LIGHT); break;   // 空行/未知地址:轻反馈,不跳转
     }
 }
@@ -396,6 +405,7 @@ static void switch_view(ub_view_t v)
         case UB_VIEW_ULTRASONIC:     build_ultrasonic(content, bottom);     break;
         case UB_VIEW_GESTURE:        build_gesture(content, bottom);        break;
         case UB_VIEW_8ENCODER:       build_8encoder(content, bottom);       break;
+        case UB_VIEW_SCD41:          build_scd41(content, bottom);          break;
         case UB_VIEW_CHAIN_ENCODER:  build_chain_encoder(content, bottom);  break;
         case UB_VIEW_CHAIN_JOYSTICK: build_chain_joystick(content, bottom); break;
         default: break;
@@ -675,6 +685,79 @@ static void poll_8encoder(void)
     if (s_sleep && active) core2_sleep_kick(s_sleep);
 }
 
+// ── SCD41(Unit CO2L:CO₂/温/湿)────────────────────────────────────────────
+
+static void build_scd41(lv_obj_t *content, lv_obj_t *bottom)
+{
+    // 上排:CO₂ 大数值卡 + CO₂ 趋势 chart;下排:温度卡 + 湿度卡(3 卡 + 1 chart,合 §8 密度)
+    s_card0 = ui_value_card_create(content, 8, 8, 140, 80, "CO2", "ppm");
+    // chart 值域 0~2000ppm:覆盖室内常见带(新风 ~400、密闭升到 1000+);>2000 会顶到量程,
+    // 数值卡本身仍精确显示实际读数(SCD41 量程到 5000),已知限制见 README。
+    s_chart = ui_chart_create(content, 156, 8, 156, 80, 80, 0, 2000);
+    s_card1 = ui_value_card_create(content, 8,   96, 150, 80, "Temp",  "C");   // °非 ASCII,用 C
+    s_card2 = ui_value_card_create(content, 164, 96, 148, 80, "Humid", "%");
+    s_scd_prev_co2 = -1;
+    s_log_name = "scd41";
+    s_log_cols = "co2_ppm,temp_c,rh_pct";
+    make_bottom_bar(bottom, false);
+}
+
+static void poll_scd41(void)
+{
+    if (!ub_scan_attached(UB_KIND_SCD41)) {
+        bsp_display_lock(0);
+        ui_value_card_set_error(s_card0, "未接");
+        ui_value_card_set_error(s_card1, "未接");
+        ui_value_card_set_error(s_card2, "未接");
+        bsp_display_unlock();
+        return;
+    }
+
+    // 周期模式每 ~5s 才有新数据:先探 data_ready,ready 才 read;两者任一 I2C 失败才计入
+    // 拔线判定,"未就绪"(ready=false)不算失败(否则会把在线单元误判成掉线)。
+    bool ready = false;
+    esp_err_t err = unit_scd41_data_ready(&ready);
+    if (err == ESP_OK && ready) {
+        uint16_t co2; float tc, rh;
+        err = unit_scd41_read(&co2, &tc, &rh);
+        if (err == ESP_OK) {
+            s_fail_count = 0;
+
+            int32_t co2_clamped = co2;
+            if (co2_clamped > 2000) co2_clamped = 2000;
+
+            bsp_display_lock(0);
+            ui_value_card_set_value(s_card0, (float)co2, NULL);
+            ui_value_card_set_value(s_card1, tc, NULL);
+            ui_value_card_set_value(s_card2, rh, NULL);
+            ui_chart_push(s_chart, co2_clamped);
+            bsp_display_unlock();
+
+            if (s_logging) data_log_row("%u,%.1f,%.1f", (unsigned)co2, tc, rh);
+            // CO₂ 变化(如对着单元呼气)= 有人在评估 → 唤醒;首个读数也 kick 一次
+            if (s_sleep && (s_scd_prev_co2 < 0 || abs((int)co2 - s_scd_prev_co2) > 30))
+                core2_sleep_kick(s_sleep);
+            s_scd_prev_co2 = co2;
+            return;
+        }
+    }
+
+    if (err != ESP_OK) {              // data_ready 或 read 的 I2C 失败 → 累计,连续 20 帧判拔线
+        s_fail_count++;
+        if (s_fail_count >= UB_FAIL_STREAK_LIMIT) {
+            ub_scan_mark_lost(UB_KIND_SCD41);
+            bsp_display_lock(0);
+            ui_value_card_set_error(s_card0, "断线");
+            ui_value_card_set_error(s_card1, "断线");
+            ui_value_card_set_error(s_card2, "断线");
+            bsp_display_unlock();
+            haptics_play(HAPTIC_BUMP_HARD);
+        }
+    } else {                          // 通信正常、只是本周期还没新数据:健康,清失败计数
+        s_fail_count = 0;
+    }
+}
+
 // ── Chain Encoder ───────────────────────────────────────────────────────────
 
 static void build_chain_encoder(lv_obj_t *content, lv_obj_t *bottom)
@@ -893,6 +976,7 @@ void unit_bench_ui_tick(int64_t now_ms, core2_sleep_t *sleep)
         case UB_VIEW_ULTRASONIC:     poll_ultrasonic();     break;
         case UB_VIEW_GESTURE:        poll_gesture();        break;
         case UB_VIEW_8ENCODER:       poll_8encoder();       break;
+        case UB_VIEW_SCD41:          poll_scd41();          break;
         case UB_VIEW_CHAIN_ENCODER:  poll_chain_encoder();  break;
         case UB_VIEW_CHAIN_JOYSTICK: poll_chain_joystick(); break;
     }

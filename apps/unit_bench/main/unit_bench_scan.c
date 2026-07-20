@@ -9,6 +9,7 @@
 #include "unit_ultrasonic.h"
 #include "unit_gesture.h"
 #include "unit_8encoder.h"
+#include "unit_scd41.h"
 
 static const char *TAG = "ub_scan";
 
@@ -25,6 +26,7 @@ static ub_kind_t kind_of_addr(uint8_t addr)
         case UNIT_ULTRASONIC_ADDR_DEFAULT: return UB_KIND_ULTRASONIC;
         case UNIT_GESTURE_ADDR_DEFAULT:    return UB_KIND_GESTURE;
         case UNIT_8ENCODER_ADDR_DEFAULT:   return UB_KIND_8ENCODER;
+        case UNIT_SCD41_ADDR_DEFAULT:      return UB_KIND_SCD41;
         default:                          return UB_KIND_UNKNOWN;
     }
 }
@@ -37,6 +39,7 @@ static bool try_attach(ub_kind_t kind, i2c_master_bus_handle_t bus)
         case UB_KIND_ULTRASONIC: err = unit_ultrasonic_init(bus, 0); break;
         case UB_KIND_GESTURE:    err = unit_gesture_init(bus, 0);    break;
         case UB_KIND_8ENCODER:   err = unit_8encoder_init(bus, 0);   break;
+        case UB_KIND_SCD41:      err = unit_scd41_init(bus, 0);      break;
         default: return false;
     }
     if (err != ESP_OK) {
@@ -55,7 +58,7 @@ void ub_scan_run(ub_scan_result_t *out, int chain_timeout_ms)
     if (bus == NULL || core2_board_port_a_stuck()) {
         out->bus_stuck = true;
         // 总线不可用:全部已知单元判丢失(总线恢复后,下一轮 rescan 会自然重新 init 接管)
-        for (int k = UB_KIND_DLIGHT; k <= UB_KIND_8ENCODER; k++) s_attached[k] = false;
+        for (int k = UB_KIND_DLIGHT; k <= UB_KIND_SCD41; k++) s_attached[k] = false;
     } else {
         unit_probe_result_t results[UB_SCAN_MAX_ROWS * 2];
         int n = unit_probe_scan(bus, results, UB_SCAN_MAX_ROWS * 2);
@@ -69,7 +72,7 @@ void ub_scan_run(ub_scan_result_t *out, int chain_timeout_ms)
             out->rows[row].addr = addr;
             row++;
 
-            if (kind >= UB_KIND_DLIGHT && kind <= UB_KIND_8ENCODER) {
+            if (kind >= UB_KIND_DLIGHT && kind <= UB_KIND_SCD41) {
                 seen[kind] = true;
                 if (!s_attached[kind]) s_attached[kind] = try_attach(kind, bus);
             }
@@ -78,7 +81,7 @@ void ub_scan_run(ub_scan_result_t *out, int chain_timeout_ms)
 
         // 本轮扫描没探到地址的已知单元 = 判丢失(比详情页的连续失败计数更快发现拔线,
         // 覆盖"用户还没进详情页、单元已经被拔走"的场景)
-        for (int k = UB_KIND_DLIGHT; k <= UB_KIND_8ENCODER; k++) {
+        for (int k = UB_KIND_DLIGHT; k <= UB_KIND_SCD41; k++) {
             if (!seen[k]) s_attached[k] = false;
         }
     }
@@ -94,13 +97,13 @@ void ub_scan_run(ub_scan_result_t *out, int chain_timeout_ms)
 
 bool ub_scan_attached(ub_kind_t kind)
 {
-    if (kind < UB_KIND_DLIGHT || kind > UB_KIND_8ENCODER) return false;
+    if (kind < UB_KIND_DLIGHT || kind > UB_KIND_SCD41) return false;
     return s_attached[kind];
 }
 
 void ub_scan_mark_lost(ub_kind_t kind)
 {
-    if (kind < UB_KIND_DLIGHT || kind > UB_KIND_8ENCODER) return;
+    if (kind < UB_KIND_DLIGHT || kind > UB_KIND_SCD41) return;
     s_attached[kind] = false;
 }
 

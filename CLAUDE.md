@@ -53,7 +53,7 @@
 | **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
 | **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
-| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(8Encoder/DLight/超声波/手势)+ Chain(Encoder/Joystick) | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
+| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(8Encoder/DLight/超声波/手势/CO2L-SCD41)+ Chain(Encoder/Joystick) | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
 | **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测(`power_monitor`)+ 全平台负载开关 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写(自动发现槽位,工程名/版本/编译日期直读 `esp_app_desc_t`,无需为新 app 改 launcher 代码) | `launcher/README.md` |
 
@@ -162,8 +162,9 @@ components/
   ui_kit/          评估台 UI 控件:状态栏 / 数值卡 / chart / 列表菜单(全守 §6 渲染红线)
   data_log/        串口 CSV 导出(时间戳自动打点),SPIFFS 离线录制(规划中)
   units/           PORT.A/C 外接单元驱动:unit_8encoder / unit_ultrasonic / unit_dlight /
-                   unit_gesture / unit_rgb / chain_bus + unit_chain_encoder /
-                   unit_chain_joystick / unit_probe(已知地址表 + 全总线扫描,见 §10)
+                   unit_gesture / unit_scd41(CO2L,CO₂/温/湿)/ unit_rgb / chain_bus +
+                   unit_chain_encoder / unit_chain_joystick /
+                   unit_probe(已知地址表 + 全总线扫描,见 §10)
   screenshot/      串口触发屏幕截图(调试设施,core2_board_init 代调):主机跑
                    tools/screenshot.py 把设备当前屏抓成 PNG,AI 协作者直接 Read"看屏"
                    验收 UI(**何时用/怎么用见 §10.1**)。依赖 CONFIG_LV_USE_SNAPSHOT
@@ -459,7 +460,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 | **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
 | **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
-| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C + Chain | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
+| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(含 CO2L/SCD41)+ Chain | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
 | **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测 + 全平台负载 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写中 | `launcher/README.md` |
 
