@@ -444,6 +444,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 - **打盹判据只看机身动作(IMU),别看评估对象自身读数**(单元评估场景下用 `core2_sleep_kick` 补桌面场景,§10)。
 - 🔴 **MCU 固件单元用 repeated-start 组合读会钳死总线**:读拆两笔事务(§10、`docs/units/_MCU_Firmware_I2C_Units.md`)。
 - **渲染红线:永不每帧整屏重绘**(§6)。静态层进页画一次、页内只刷脏矩形;扁平色优先(RGB565 banding)。
+- 🔴 **LVGL 文本格式化不能用 `%f`**:`lv_label_set_text_fmt` / `lv_snprintf` 走 LVGL 自带精简 printf,平台 **`CONFIG_LV_USE_FLOAT` 未开**(默认关),`%f` 分支被条件编译掉、格式符 `f` 落到 default 分支被**原样打印**——数值卡会显示字面 **"f"** 而非数字(症状:`ui_value_card` 只出 "f 单位",chart 却在动)。要显示小数,手工四舍五入拆整数/小数位用 `%d.%d`(`ui_value_card.c` 已如此),或全局开 `CONFIG_LV_USE_FLOAT=y`(需 fullclean 重编全工程)。整数格式 `%d/%lu/%s` 不受影响。
 - **AXP192 电流测量的坑**(power_lab 专属,写进其 SPEC/README):只测电池路和 VBUS 路,无 per-rail;USB 插着时电池电流≈0,要看 VBUS 电流;真实续航测试必须拔 USB → 没串口 → SPIFFS 离线录制是唯一手段;几 mA 小负载(震动)可能淹在 ADC 噪声里,chart 侧加滑动平均。
 
 ---

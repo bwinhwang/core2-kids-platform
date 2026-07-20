@@ -60,7 +60,16 @@ void ui_value_card_set_value(ui_value_card_t *card, float value, const ui_value_
 
     // 数值卡显示到小数点后一位;整数值(如 mV/mA)天然多一位无意义小数,调用方若想要纯整数
     // 可自行先四舍五入再传入(这里为通用性统一保留一位小数)。
-    lv_label_set_text_fmt(card->value_label, "%.1f", (double)value);
+    //
+    // ⚠️ 不能用 lv_label_set_text_fmt(..., "%.1f", ...):它走 LVGL 自带精简 printf,平台
+    // CONFIG_LV_USE_FLOAT 未开时 %f 分支被条件编译掉,格式符 'f' 落到 default 分支被原样
+    // 打印,数值卡会显示字面 "f"(而非数字)。改为手工四舍五入到一位小数,只用 LVGL 恒
+    // 支持的整数格式渲染,不依赖任何浮点 printf 配置。
+    float v = value < 0.0f ? -value : value;
+    int32_t scaled = (int32_t)(v * 10.0f + 0.5f);       // 四舍五入到 0.1
+    bool neg = (value < 0.0f) && (scaled != 0);          // 避免 "-0.0"
+    lv_label_set_text_fmt(card->value_label, "%s%d.%d",
+                          neg ? "-" : "", (int)(scaled / 10), (int)(scaled % 10));
 }
 
 void ui_value_card_set_error(ui_value_card_t *card, const char *err_text)
