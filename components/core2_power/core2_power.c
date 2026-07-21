@@ -59,6 +59,16 @@ esp_err_t core2_power_backlight(bool on)
     return err;
 }
 
+esp_err_t core2_power_shutdown(void)
+{
+    // AXP192 REG 0x32 bit7=1 → 立即断电(与 M5Core2 AXP192::PowerOff() 一致,
+    // Confirmed via github.com/m5stack/M5Core2 src/AXP192.cpp)。0x32 还管电池检测/
+    // CHGLED,必须 RMW 保住其余位,不能整字节写(勿改用 core2_power_write_reg)。
+    ESP_LOGW(TAG, "软件关机:置 AXP192 0x32 bit7");
+    return axp_rmw(0x32, 0x00, 0x80);
+    // 正常不返回(芯片断电);若返回说明 I2C 写失败,交调用方处理。
+}
+
 esp_err_t core2_power_read_regs(uint8_t reg, uint8_t *buf, size_t len)
 {
     if (!s_axp) return ESP_ERR_INVALID_STATE;

@@ -168,7 +168,13 @@ components/
   screenshot/      串口触发屏幕截图(调试设施,core2_board_init 代调):主机跑
                    tools/screenshot.py 把设备当前屏抓成 PNG,AI 协作者直接 Read"看屏"
                    验收 UI(**何时用/怎么用见 §10.1**)。依赖 CONFIG_LV_USE_SNAPSHOT
-                   (已进 sdkconfig.platform)
+                   (已进 sdkconfig.platform)。屏下 BtnB 也可触发,主机用
+                   `screenshot.py --watch` 常驻监听接收(见 touch_btns)
+  touch_btns/      屏下三个圆圈键区(BtnA/B/C)的全局三键(core2_board_init 代调):
+                   旁路 LVGL 直读 FT6336U(0x38)屏外坐标——默认 BtnA长按=回launcher /
+                   BtnB短按=截屏 / BtnC长按=关机。所有 app(含游戏)白拿,app 侧零代码;
+                   每键短/长按均可 touch_btns_bind() 覆盖(cb=NULL 复位默认)。命中阈值
+                   (BTN_Y_MIN/x 分界)是唯一需实机标定的旋钮,见组件 README
 ```
 
 ### 任务 / 队列模型(FreeRTOS)
@@ -442,6 +448,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 - **底座必装**:IMU(0x68)与电池都来自 Bottom2;灯带 G25 常驻,G25 不能再做别的。开机先确认底座在位、I2C 扫得到 0x68。
 - 🔴 **灯带/PORT 单元全黑或无响应先查 EXTEN**:吃 M-Bus 5V(SY7088 升压,AXP192 EXTEN 使能),**BSP 从不开**;数据线正常翻转、`refresh` 返回 OK 也可能全黑。必须自己开 EXTEN(`core2_power`、§7)。**别误判成硬件坏**。
 - 🔴 **`brightness_set(0)` 不熄屏**:背光=AXP192 DCDC3,0% 仍 ~2.95V。深度省电真黑屏必须断 DCDC3 使能(REG 0x12 bit1,`core2_power_backlight()`,§7)。
+- **屏下三个圆圈键区走 `touch_btns`,不是 LVGL 按钮**:FT6336U 面板 320×280,圆圈在屏外 y≥240,LVGL indev(240 高画布)接不到 → 组件旁路 LVGL 直读 0x38 原始坐标。三键=BtnA长按回launcher/BtnB短按截屏/BtnC长按关机,全局固定所有 app 白拿。命中阈值(`BTN_Y_MIN`/x 分界)**需实机标定**(首刷看串口 `raw touch` 日志回填,见组件 README)。**关机=AXP192 0x32 bit7 RMW**(`core2_power_shutdown()`),别整字节写(0x32 还管电池检测/CHGLED)。
 - **打盹判据只看机身动作(IMU),别看评估对象自身读数**(单元评估场景下用 `core2_sleep_kick` 补桌面场景,§10)。
 - 🔴 **MCU 固件单元用 repeated-start 组合读会钳死总线**:读拆两笔事务(§10、`docs/units/_MCU_Firmware_I2C_Units.md`)。
 - **渲染红线:永不每帧整屏重绘**(§6)。静态层进页画一次、页内只刷脏矩形;扁平色优先(RGB565 banding)。
