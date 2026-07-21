@@ -53,8 +53,8 @@
 | **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
 | **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
-| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(8Encoder/DLight/超声波/手势/CO2L-SCD41)+ Chain(Encoder/Joystick) | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
-| **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测(`power_monitor`)+ 全平台负载开关 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
+| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(8Encoder/DLight/超声波/手势/CO2L-SCD41)+ Chain(Encoder/Joystick) | 🔨 已实现·build 通过·待实机 | `apps/unit_bench/SPEC.md` + `README.md` |
+| **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测(`power_monitor`)+ 全平台负载开关 | 🔨 已实现·build 通过·待实机 | `apps/power_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写(自动发现槽位,工程名/版本/编译日期直读 `esp_app_desc_t`,无需为新 app 改 launcher 代码) | `launcher/README.md` |
 
 > **历史**:2026-07-17 早间平台一度整体转向 IoT 评估台,6 张幼儿游戏卡带(tilt_maze/
@@ -459,17 +459,8 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 
 ## 12. 各 App 竣工索引
 
-各 app 的 **as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,功能规格在 SPEC:
-
-| App | 槽 | 外设 | 状态 | 竣工记录 |
-|---|---|---|---|---|
-| **tilt_maze** 倾斜迷宫(游戏) | ota_0 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/tilt_maze/SPEC.md` + `README.md` |
-| **busy_knobs** 忙碌旋钮(游戏) | ota_1 | Chain Encoder | ✅ 已恢复,as-built | `apps/busy_knobs/FUN2_SPEC.md` + `README.md` |
-| **chick_pour** 喂小鸡(游戏) | ota_2 | IMU 倾斜 | ✅ 已恢复,as-built | `apps/chick_pour/SPEC.md` + `README.md` |
-| **chain_lab** 吊臂抓取(游戏) | ota_3 | Chain Joystick | ✅ 已恢复,as-built | `apps/chain_lab/SPEC.md` + `README.md` |
-| **unit_bench** 外设/单元评估台 | ota_4 | PORT.A I2C(含 CO2L/SCD41)+ Chain | 📐 立项,施工中 | `apps/unit_bench/SPEC.md` + `README.md` |
-| **power_lab** 功耗/系统评估台 | ota_5 | AXP192 遥测 + 全平台负载 | 📐 立项,施工中 | `apps/power_lab/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | 🔄 数据驱动重写中 | `launcher/README.md` |
+各 app 的 **as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,功能规格在 SPEC。
+**App→槽→外设→状态→文档 一览见 §1「各 App 索引」**(同一张表,此处不重复)。
 
 > 四张游戏 2026-07-17 早随平台转向被整体删除、当晚用户修订为共存后从删除前提交原样恢复
 > (仅补丁 `CORE2_BOARD_CFG_KIDS_DEFAULT`→`CORE2_BOARD_CFG_DEFAULT` 改名以配合 Phase 0 的宏

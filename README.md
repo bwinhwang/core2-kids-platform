@@ -108,8 +108,10 @@ python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/unit_bench/bu
 | `components/haptics/` | 震动模式库(事件队列,非阻塞) |
 | `components/motion_detect/` | "机身有没有被动过"检测(帧间差+唤醒去抖,纯逻辑) |
 | `components/core2_sleep/` | 两级省电编排器(打盹→深度省电→去抖唤醒,可 force_stage 手动驱动) |
-| `components/units/` | 8 个外接单元驱动(8Encoder/超声波/DLight/手势/RGB/Chain Encoder/Joystick/unit_probe) |
+| `components/touch_btns/` | 屏下三圆圈键区做成全局三键(默认 回launcher/截屏/关机,app 可 bind 覆盖) |
+| `components/screenshot/` | 串口触发屏幕截图导出(调试设施;主机 `tools/screenshot.py` 抓 PNG) |
+| `components/units/` | 外接单元驱动(8Encoder/超声波/DLight/手势/CO2L·SCD41/RGB/Chain Encoder/Joystick)+ chain_bus 传输 + unit_probe 扫描 |
 | `docs/platform/` | Core2 / Bottom2 板级真值(勿改)+ `BSP_GUIDE.md` 复用指南 |
 | `docs/units/` | 各 UNIT 外设硬件真值(unit_bench 识别/详情要用) |
 | `docs/ROADMAP.md` | 平台转向决策记录 + 三个 Phase 路线图(含幼儿掌机时期路线图存档) |
-| `tools/` | `serial_capture.py` 抓日志 · `flash_map.md`/`flash_one.sh` 烧录对照 · `new_app.sh` 新评估 app 脚手架 |
+| `tools/` | `serial_capture.py` 抓日志 · `screenshot.py` 抓屏 PNG(`--watch` 接 BtnB 触发)· `flash_map.md`/`flash_one.sh` 烧录对照 · `new_app.sh` 新 app 脚手架 |
