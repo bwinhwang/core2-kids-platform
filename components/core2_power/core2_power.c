@@ -58,3 +58,19 @@ esp_err_t core2_power_backlight(bool on)
     if (err != ESP_OK) ESP_LOGW(TAG, "切换背光 DCDC3(%d)失败: %s", on, esp_err_to_name(err));
     return err;
 }
+
+esp_err_t core2_power_read_regs(uint8_t reg, uint8_t *buf, size_t len)
+{
+    if (!s_axp) return ESP_ERR_INVALID_STATE;
+    if (!buf || len == 0) return ESP_ERR_INVALID_ARG;
+    // 与 axp_rmw 内部读法一致:AXP192 是普通寄存器寻址芯片,组合读(repeated-start)安全,
+    // 不属于 8Encoder 那类 MCU 从机"只在收到 STOP 才解析寄存器号"的坑(CLAUDE.md §10)。
+    return i2c_master_transmit_receive(s_axp, &reg, 1, buf, len, 1000);
+}
+
+esp_err_t core2_power_write_reg(uint8_t reg, uint8_t val)
+{
+    if (!s_axp) return ESP_ERR_INVALID_STATE;
+    uint8_t out[2] = { reg, val };
+    return i2c_master_transmit(s_axp, out, sizeof(out), 1000);
+}

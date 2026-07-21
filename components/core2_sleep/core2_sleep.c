@@ -120,3 +120,13 @@ void core2_sleep_set_awake_brightness(core2_sleep_t *s, int pct)
     s->cfg.awake_brightness = pct;
     if (s->stage == CORE2_SLEEP_AWAKE) bsp_display_brightness_set(pct);
 }
+
+void core2_sleep_force_stage(core2_sleep_t *s, core2_sleep_stage_t stage)
+{
+    if (stage == s->stage) return;  // 已在目标阶段,空操作
+    switch (stage) {
+        case CORE2_SLEEP_AWAKE: do_wake(s);   break;
+        case CORE2_SLEEP_NAP:   enter_nap(s); break;
+        case CORE2_SLEEP_DEEP:  enter_deep(s); break;
+    }
+}

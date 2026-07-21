@@ -38,6 +38,23 @@ esp_err_t app_slot_launch(int idx);
  *  @param name 非 NULL 时带回该 App 的 project_name(用于选图标/调试)。 */
 bool app_slot_present(int idx, char *name, size_t name_len);
 
+// 与 esp_app_desc_t 字段等长(见 esp_app_format.h):project_name/version 各 32,
+// date/time 各 16(编译期 __DATE__/__TIME__ 字符串,如 "Jul 17 2026"/"12:34:56")。
+typedef struct {
+    char project_name[32];
+    char version[32];
+    char date[16];
+    char time[16];
+} app_slot_info_t;
+
+/**
+ * @brief 取第 idx 槽的完整描述(project_name/version/date/time),供 launcher 数据驱动
+ *        渲染卡片用。语义与 app_slot_present 一致(空槽/无效镜像返回 false),只是多带
+ *        回几个描述符字段。
+ * @return false = 空槽或读取失败(*out 内容不定,勿用)。
+ */
+bool app_slot_info(int idx, app_slot_info_t *out);
+
 #ifdef __cplusplus
 }
 #endif
