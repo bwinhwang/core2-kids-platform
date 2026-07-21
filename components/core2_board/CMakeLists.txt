@@ -10,4 +10,5 @@ idf_component_register(
         haptics           # 震动
         imu_mpu6886       # IMU
         screenshot        # 串口截图导出(Claude Code 看屏)
+        touch_btns        # 屏下三键(回launcher/截屏/关机)
 )

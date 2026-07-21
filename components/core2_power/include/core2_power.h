@@ -42,6 +42,11 @@ esp_err_t core2_power_bus_5v(bool on);
  *  开背光后再恢复亮度,避免瞬间闪亮。 */
 esp_err_t core2_power_backlight(bool on);
 
+/** @brief 软件优雅关机(AXP192 REG 0x32 bit7 置位,与 M5Core2 PowerOff() 一致)。
+ *  调用后设备立即断电、正常不返回;返回非 ESP_OK 表示 I2C 写失败(如 init 未成功)。
+ *  与"电源键按住 ≥4s 硬件强制断电"是两条独立通道,本函数是可被 UI/按键触发的软件关机。 */
+esp_err_t core2_power_shutdown(void);
+
 /**
  * @brief 连续读 len 个寄存器(从 reg 起始,单笔 I2C 事务)。
  *

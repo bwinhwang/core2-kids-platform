@@ -13,6 +13,7 @@
 #include "haptics.h"
 #include "imu_mpu6886.h"
 #include "screenshot.h"
+#include "touch_btns.h"
 
 static const char *TAG = "core2_board";
 
@@ -96,6 +97,12 @@ esp_err_t core2_board_init(const core2_board_cfg_t *cfg)
     // 9) 串口截图(调试设施,失败不拦平台起机)
     if (screenshot_init() != ESP_OK) {
         ESP_LOGW(TAG, "screenshot 初始化失败,串口截图不可用(游戏不受影响)");
+    }
+
+    // 10) 屏下三键(BtnA长按=回launcher / BtnB短按=截屏 / BtnC长按=关机;全局固定,
+    //     所有 app 白拿,失败不拦起机)
+    if (touch_btns_init(s_i2c) != ESP_OK) {
+        ESP_LOGW(TAG, "touch_btns 初始化失败,屏下三键不可用");
     }
 
     ESP_LOGI(TAG, "平台就绪:屏%s 灯带%s 音频%s 震动%s IMU%s",
