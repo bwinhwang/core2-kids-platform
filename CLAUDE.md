@@ -38,7 +38,7 @@
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 📐 SPEC 定稿(**首张大对象护眼约束原生卡带**),未开工;P1 先验"移动目标追踪"概念 | `apps/fish_pond/SPEC.md` |
+| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 🔄 P1+P2 核心循环已实现,build 通过(0 警告),待烧录+实机点检;P3 趣味批未做 | `apps/fish_pond/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
 
 > **2026-07-17 槽位清洗**(用户拍板,结合大对象护眼约束 §2-5/§8):peekaboo / feed_monster /
@@ -392,7 +392,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 📐 SPEC 定稿(**首张大对象护眼约束原生卡带**),未开工;P1 先验"移动目标追踪"概念 | `apps/fish_pond/SPEC.md` |
+| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 🔄 P1+P2 核心循环已实现,build 通过(0 警告),待烧录+实机点检;P3 趣味批未做 | `apps/fish_pond/README.md`(规格 `SPEC.md`) |
 | **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
