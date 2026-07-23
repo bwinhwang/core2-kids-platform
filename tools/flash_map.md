@@ -14,7 +14,7 @@
 | ota_2 | `0x590000` | chick_pour 小鸡回窝(IMU;原 peekaboo 槽,2026-07-12 回收) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/chick_pour/build/chick_pour.bin` |
 | ota_3 | `0x790000` | (空——2026-07-17 槽位清洗:feed_monster→busy_bus 均已删;pipe_garden 候选未立项) | — |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
-| ota_5 | `0xB90000` | fish_pond 大鱼池塘(Chain Enc/Joy @PORT.C;2026-07-17 立项,原 magic_wand 槽,未开工) | `python -m esptool --chip esp32 -p <PORT> write-flash 0xB90000 apps/fish_pond/build/fish_pond.bin` |
+| ota_5 | `0xB90000` | fish_pond 大鱼池塘(Chain Enc/Joy @PORT.C;P1+P2 已实现,build 通过,待烧录+实机点检) | `python -m esptool --chip esp32 -p <PORT> write-flash 0xB90000 apps/fish_pond/build/fish_pond.bin` |
 | storage | `0xD90000` | 共享素材区(spiffs,~2.4M) | 将来放烘焙精灵图/音效 |
 
 `tools/flash_one.sh <app名> [PORT]` 可直接打印/执行对应命令(WSL 内只打印,拿到 WSL 外执行)。
