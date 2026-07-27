@@ -21,3 +21,9 @@ void feedback_emit_collect(float x, float y);
 
 /** @brief 到达目标(过关):全通道庆祝。 */
 void feedback_emit_win(void);
+
+/** @brief 踩陷阱/撞巡逻怪(退回本关起点):(x,y)为触发点,与撞墙区分的独立词汇。 */
+void feedback_emit_fail(float x, float y);
+
+/** @brief 到家但星星没集齐:温和提示"还差星星"(轻音+轻震+没收的星闪),不算失败。 */
+void feedback_emit_need_stars(void);

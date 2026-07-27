@@ -27,6 +27,7 @@ static const struct {
     [HAPTIC_BUMP_HARD]  = { 1, { {100, 0} } },
     [HAPTIC_COLLECT]    = { 1, { {25, 0} } },
     [HAPTIC_WIN]        = { 3, { {80, 80}, {80, 80}, {80, 0} } },  // 欢庆三连
+    [HAPTIC_FAIL]       = { 2, { {50, 70}, {50, 0} } },            // 双短震,区别于单次撞墙
 };
 
 static QueueHandle_t s_queue;

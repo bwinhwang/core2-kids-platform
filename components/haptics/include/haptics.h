@@ -19,6 +19,7 @@ typedef enum {
     HAPTIC_BUMP_HARD,   // 撞墙-重 ~100ms
     HAPTIC_COLLECT,     // 收集星:极短 ~25ms
     HAPTIC_WIN,         // 过关:欢庆三连震
+    HAPTIC_FAIL,        // 踩陷阱/撞巡逻怪:双短震(区别于单次撞墙);非零失败卡带专用,2026-07-27
     HAPTIC_PATTERN_MAX,
 } haptic_pattern_t;
 

@@ -12,7 +12,7 @@
 
 static const char *TAG = "feedback";
 
-typedef enum { EV_HELLO, EV_BUMP, EV_NEAR, EV_COLLECT, EV_WIN } ev_t;
+typedef enum { EV_HELLO, EV_BUMP, EV_NEAR, EV_COLLECT, EV_WIN, EV_FAIL, EV_NEED_STARS } ev_t;
 
 typedef struct {
     ev_t  ev;
@@ -75,6 +75,18 @@ static void feedback_task(void *arg)
                 render_win_celebrate();
                 ledstrip_fx_set_base(LED_BASE_AMBIENT);   // 庆祝后回常态
                 break;
+            case EV_FAIL:
+                audio_fx_play(SND_FAIL);
+                haptics_play(HAPTIC_FAIL);
+                ledstrip_fx_trigger(LED_FX_FAIL);
+                render_fail_flash(m.x, m.y);
+                break;
+            case EV_NEED_STARS:
+                // 到家但差星:温和"还差星星",复用已有轻柔词汇(不新增跨组件音效/震动)
+                audio_fx_play(SND_NEAR);      // 上扬叮铃:"还差一点"
+                haptics_play(HAPTIC_HELLO);   // 一下轻震
+                render_hint_stars();          // 没收的星闪几下指路
+                break;
         }
     }
 }
@@ -100,3 +112,5 @@ void feedback_emit_bump(float s, float x, float y){ emit(&(msg_t){ .ev = EV_BUMP
 void feedback_emit_near(int level)                { emit(&(msg_t){ .ev = EV_NEAR, .level = level }); }
 void feedback_emit_collect(float x, float y)      { emit(&(msg_t){ .ev = EV_COLLECT, .x = x, .y = y }); }
 void feedback_emit_win(void)                      { emit(&(msg_t){ .ev = EV_WIN }); }
+void feedback_emit_fail(float x, float y)         { emit(&(msg_t){ .ev = EV_FAIL, .x = x, .y = y }); }
+void feedback_emit_need_stars(void)               { emit(&(msg_t){ .ev = EV_NEED_STARS }); }

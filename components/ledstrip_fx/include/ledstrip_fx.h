@@ -33,6 +33,7 @@ typedef enum {
     LED_FX_GATHER,          // 两端 → 中间聚拢
     LED_FX_SPREAD,          // 中间 → 两端散开
     LED_FX_FLASH,           // 整条暖白柔亮一下(≈250ms 起落,无频闪感)
+    LED_FX_FAIL,            // 踩陷阱/撞巡逻怪:柔和暗紫单次起落(非零失败卡带专用,2026-07-27)
 } led_fx_t;
 
 /** @brief 初始化灯带 + 起动画任务。 */

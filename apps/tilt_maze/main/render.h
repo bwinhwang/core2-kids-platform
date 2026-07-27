@@ -23,13 +23,21 @@ void render_ball_update(float cx, float cy, float vx, float vy);
 /** @brief 收集第 idx 颗星:放大淡出后删除。 */
 void render_collect_star(int idx);
 
+/** @brief 到家却没集齐星:把还没收的星闪几下指路(过关必收的提示,§14.2026-07-27)。 */
+void render_hint_stars(void);
+
 /** @brief 家脉动快/慢切换(接近时加快,§5.2)。 */
 void render_home_excited(bool fast);
+
+/** @brief 巡逻怪每帧移动(本关无巡逻怪则空操作);(cx,cy)为屏幕坐标。 */
+void render_hazard_update(float cx, float cy);
 
 // ── 特效层(事件触发,短生命周期,§9.1/§9.5)──────────────────────────
 /** @brief 球被"顶"了一下:挤扁回弹(撞墙);下一帧 update 起效。 */
 void render_ball_squash(void);
 /** @brief 撞点泛光一下(单次淡出,非频闪);(cx,cy)为屏幕坐标。 */
 void render_wall_flash(float cx, float cy);
+/** @brief 踩陷阱/撞巡逻怪泛光(与撞墙区分的独立颜色);(cx,cy)为屏幕坐标。 */
+void render_fail_flash(float cx, float cy);
 /** @brief 过关庆祝:少量彩纸轻柔飘落(限量,§9.5)。 */
 void render_win_celebrate(void);

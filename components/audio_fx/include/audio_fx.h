@@ -27,6 +27,7 @@ typedef enum {
     SND_NEAR,         // 接近目标(上扬叮铃)
     SND_COLLECT,      // 收集(清脆叮)
     SND_WIN,          // 达成/过关(上行琶音)
+    SND_FAIL,         // 踩陷阱/撞巡逻怪(下行,温和不吓人;非零失败卡带专用,2026-07-27)
     SND_MAX,
 } sound_id_t;
 

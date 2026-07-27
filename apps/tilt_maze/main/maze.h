@@ -3,7 +3,13 @@
 // 瓦片图(thick-wall):16 列 × 12 行,cell=20px,迷宫正好铺满 320×240(无偏移)。
 // (2026-07-08 取消难度渐进:16 张同难度真迷宫,全部 1 格窄走廊 + 分叉/死胡同/环路;
 //  tier/guide 字段随之删除。球 r=7、到家判定 GOAL_R=13 见 tuning.h。)
-// 瓦片:'#'=墙  '.'=路面  'S'=起点  'H'=家  '*'=星
+// 瓦片:'#'=墙  '.'=路面  'S'=起点  'H'=家  '*'=星  'X'=陷阱(踩中退回本关起点)
+//
+// 【2026-07-27 放弃零失败(仅本卡带,平台其它卡带仍守 CLAUDE.md §2 零失败)】
+// 幼儿反馈已完全掌握原版(撞墙只是软弹、星非必需、16 关同难度洗牌),需要真实的
+// "会输"来撑住挑战:静态陷阱格('X',踩中重来本关) + 可选一只巡逻怪(hazard_a↔hazard_b
+// 直线往返,碰到重来本关)。trap/hazard_a 的 col=-1 表示本关未使用该机制。
+// 失败代价只退回本关起点,不影响其它关卡进度(用户拍板,比生命值/连续惩罚温和)。
 #pragma once
 
 #include <stdbool.h>
@@ -13,23 +19,18 @@
 #define MAZE_ROWS   12
 #define MAZE_CELL   20.0f
 
-typedef enum {
-    WORLD_MEADOW = 0,   // 草地
-    WORLD_SEASIDE,      // 海边
-    WORLD_STARRY,       // 星空
-    WORLD_CANDY,        // 糖果
-} world_t;
-
 typedef struct { int col, row; } cell_t;
 
 typedef struct {
     int          id;                 // 1~16
-    world_t      world;
     const char  *grid[MAZE_ROWS];    // 每行 16 字符
     cell_t       start;
     cell_t       home;
     cell_t       stars[2];
     int          n_stars;
+    cell_t       trap;               // 静态陷阱格;col=-1 表示本关无
+    cell_t       hazard_a;           // 巡逻怪往返端点 A(与 B 同行/同列直线);col=-1 表示本关无
+    cell_t       hazard_b;           // 端点 B
 } level_t;
 
 /** @brief 关卡总数。 */

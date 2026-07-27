@@ -25,6 +25,12 @@
 #define WALL_RESTITUTION 0.2f    // 撞边回弹(像被轻轻"顶"一下)
 #define BUMP_MIN_SPEED   35.0f   // 撞墙反馈触发阈值(法向速度 px/s,低于此不反馈)
 
+// ── 陷阱 / 巡逻怪(2026-07-27 放弃零失败,见 maze.h)────────────────────
+#define TRAP_R          8.0f     // 静态陷阱格判定半径(px),与星拾取判定同量级
+#define HAZARD_R        9.0f     // 巡逻怪半径(px);比球(BALL_R=7)略大但仍塞得进 20px 走廊
+#define HAZARD_SPEED    50.0f    // 巡逻怪往返速度(px/s);远低于 VEL_MAX(220),留出"能躲开"的窗口
+#define HAZARD_DWELL_MS 600      // 巡逻怪走到端点后停留多久再回头(可预判的节奏,不是无休止扫)
+
 // ── 物理步长 ─────────────────────────────────────────────────────
 #define PHYS_DT         (1.0f / 60.0f)   // 固定 dt
 #define PHYS_PERIOD_MS  16               // 任务周期(60Hz≈16ms;FREERTOS_HZ=1000)

@@ -30,10 +30,20 @@ static const level_t   *s_level;
 static vec2_t           s_home_px;
 static int              s_last_near;
 
-// 收集星(本关)
+// 收集星(本关;2026-07-27 起过关必收,见 play_tick 到家判定)
 static vec2_t           s_star_px[2];
 static bool             s_star_got[2];
 static int              s_n_stars;
+static bool             s_home_hinted;   // 已在本次"停在家门口"提示过"还差星星"(上升沿去重)
+
+// 静态陷阱格 + 巡逻怪(2026-07-27 放弃零失败,见 maze.h 顶注)
+static bool             s_trap_active;
+static vec2_t           s_trap_px;
+static bool             s_hazard_active;
+static vec2_t           s_hazard_a, s_hazard_b, s_hazard_pos;
+static float            s_hazard_t;     // 0~1,沿 a→b 插值位置
+static float            s_hazard_dir;  // +1 向 b 走,-1 向 a 走(triangle wave 往返)
+static float            s_hazard_dwell; // 到端点后剩余停留 ms(>0 时不移动,可预判节奏)
 
 static int    s_frame;                 // 进入当前状态后的帧数
 
@@ -77,6 +87,20 @@ static void start_play(int idx)
         s_star_px[i] = maze_cell_center(s_level->stars[i]);
         s_star_got[i] = false;
     }
+    s_home_hinted = false;
+
+    s_trap_active = (s_level->trap.col >= 0);
+    if (s_trap_active) s_trap_px = maze_cell_center(s_level->trap);
+
+    s_hazard_active = (s_level->hazard_a.col >= 0);
+    if (s_hazard_active) {
+        s_hazard_a = maze_cell_center(s_level->hazard_a);
+        s_hazard_b = maze_cell_center(s_level->hazard_b);
+        s_hazard_t = 0.0f;
+        s_hazard_dir = 1.0f;
+        s_hazard_dwell = 0.0f;
+        s_hazard_pos = s_hazard_a;
+    }
 
     ledstrip_fx_set_base(LED_BASE_AMBIENT);
     bsp_display_brightness_set(s_play_bright);
@@ -84,6 +108,15 @@ static void start_play(int idx)
     s_state = ST_PLAY;
     s_frame = 0;
     ESP_LOGI(TAG, "PLAY: L%d", s_level->id);
+}
+
+// 踩陷阱/撞巡逻怪:退回本关起点(2026-07-27 放弃零失败,§14 用户拍板"只退本关"而非
+// 生命值/连续惩罚)。直接复用 start_play 重进同一关:球回起点、星星重新可收、
+// 巡逻怪回端点 A、家动画重置——全部状态一次性归零,不用另写一套局部重置逻辑。
+static void trigger_fail(float x, float y)
+{
+    feedback_emit_fail(x, y);
+    start_play(s_level_idx);
 }
 
 static void enter_win(void)
@@ -183,7 +216,42 @@ static void play_tick(const imu_accel_t *acc)
         feedback_emit_bump(c.speed, s_phys.pos.x, s_phys.pos.y);
     }
 
-    // 收集星(顺路经过即收,非过关必经,§4.5)
+    // 静态陷阱格:踩中退回本关起点(2026-07-27 放弃零失败)
+    if (s_trap_active) {
+        float dx = s_phys.pos.x - s_trap_px.x, dy = s_phys.pos.y - s_trap_px.y;
+        float hit = BALL_R + TRAP_R;
+        if (dx * dx + dy * dy < hit * hit) {
+            trigger_fail(s_trap_px.x, s_trap_px.y);
+            return;
+        }
+    }
+
+    // 巡逻怪:a↔b 直线往返(triangle wave),到端点停一下再回头(可预判节奏,
+    // 不是无休止扫——2026-07-27 加,配合下方"陷阱格必有安全绕路"同一批修复),
+    // 碰到同样退回本关起点
+    if (s_hazard_active) {
+        float sx = s_hazard_b.x - s_hazard_a.x, sy = s_hazard_b.y - s_hazard_a.y;
+        float seg_len = sqrtf(sx * sx + sy * sy);
+        if (s_hazard_dwell > 0.0f) {
+            s_hazard_dwell -= PHYS_PERIOD_MS;
+        } else if (seg_len > 0.001f) {
+            s_hazard_t += s_hazard_dir * (HAZARD_SPEED * PHYS_DT / seg_len);
+            if (s_hazard_t >= 1.0f) { s_hazard_t = 1.0f; s_hazard_dir = -1.0f; s_hazard_dwell = HAZARD_DWELL_MS; }
+            else if (s_hazard_t <= 0.0f) { s_hazard_t = 0.0f; s_hazard_dir = 1.0f; s_hazard_dwell = HAZARD_DWELL_MS; }
+        }
+        s_hazard_pos.x = s_hazard_a.x + sx * s_hazard_t;
+        s_hazard_pos.y = s_hazard_a.y + sy * s_hazard_t;
+        render_hazard_update(s_hazard_pos.x, s_hazard_pos.y);
+
+        float dx = s_phys.pos.x - s_hazard_pos.x, dy = s_phys.pos.y - s_hazard_pos.y;
+        float hit = BALL_R + HAZARD_R;
+        if (dx * dx + dy * dy < hit * hit) {
+            trigger_fail(s_hazard_pos.x, s_hazard_pos.y);
+            return;
+        }
+    }
+
+    // 收集星(顺路经过即收;2026-07-27 起过关必须全收,见下方到家判定,§4.5)
     for (int i = 0; i < s_n_stars && i < 2; i++) {
         if (s_star_got[i]) continue;
         float dx = s_phys.pos.x - s_star_px[i].x, dy = s_phys.pos.y - s_star_px[i].y;
@@ -202,7 +270,23 @@ static void play_tick(const imu_accel_t *acc)
         s_last_near = nl;
     }
 
-    if (maze_reached_home(s_level, s_phys.pos)) { enter_win(); return; }
+    // 到家:星星现在是过关必收(2026-07-27 放弃零失败,原为可选加分项)。
+    // 差星星时给"还差星星"提示(上升沿一次:轻音+轻震+把没收的星闪几下指路),
+    // 不算失败、不重置——2026-07-27 实机反馈"到家没反应像坏了",故必须给明确反馈;
+    // 离开家门口(超出 GOAL_R)清标志,再回来会重新提示一次。
+    if (maze_reached_home(s_level, s_phys.pos)) {
+        bool all_stars = true;
+        for (int i = 0; i < s_n_stars && i < 2; i++) {
+            if (!s_star_got[i]) { all_stars = false; break; }
+        }
+        if (all_stars) { enter_win(); return; }
+        if (!s_home_hinted) {
+            s_home_hinted = true;
+            feedback_emit_need_stars();
+        }
+    } else {
+        s_home_hinted = false;
+    }
     // 打盹/深度省电/唤醒由 core2_sleep 在 game_task 里统一编排,这里不再检测
 }
 

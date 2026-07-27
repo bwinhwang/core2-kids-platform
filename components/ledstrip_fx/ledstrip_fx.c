@@ -16,6 +16,7 @@ static const char *TAG = "ledstrip_fx";
 #define GATHER_FRAMES   20      // ~500ms
 #define SPREAD_FRAMES   20      // ~500ms
 #define FLASH_FRAMES    10      // ~250ms 柔亮起落,非频闪
+#define FAIL_FRAMES     16      // ~400ms 暗紫起落
 
 static led_strip_handle_t s_strip;
 static uint8_t s_max_bright = 48;
@@ -156,6 +157,12 @@ static bool render_fx(int frame)
             float k = 1.0f - fabsf((float)frame / FLASH_FRAMES * 2.0f - 1.0f);
             fill((uint8_t)(0xFF * k), (uint8_t)(0xE8 * k), (uint8_t)(0xC0 * k));
             return frame < FLASH_FRAMES;
+        }
+        case LED_FX_FAIL: {
+            // 柔和暗紫单次起落(区别于 BUMP 的暖白、COLLECT 的金色、WIN 的彩虹),非频闪
+            float k = 1.0f - fabsf((float)frame / FAIL_FRAMES * 2.0f - 1.0f);
+            fill((uint8_t)(0x8A * k), (uint8_t)(0x5A * k), (uint8_t)(0x9E * k));
+            return frame < FAIL_FRAMES;
         }
         default:
             return false;
