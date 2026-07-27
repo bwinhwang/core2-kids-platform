@@ -14,6 +14,9 @@ struct ui_list_menu_s {
     lv_obj_t *container;
     row_t     rows[UI_LIST_MENU_MAX_ROWS];
     int       row_count;
+    int       w;                  // 创建时的容器宽度,行 label 截断宽度按此算
+    int       row_h;              // 行高,默认 ROW_H;ui_list_menu_set_font 可覆盖
+    const lv_font_t *font;        // 行文字字体,默认 montserrat_16
     ui_list_menu_cb_t cb;
     void     *cb_user_data;
 };
@@ -59,7 +62,18 @@ ui_list_menu_t *ui_list_menu_create(lv_obj_t *parent, int x, int y, int w, int h
     lv_obj_set_style_radius(menu->container, 8, 0);
     lv_obj_add_flag(menu->container, LV_OBJ_FLAG_SCROLLABLE);
 
+    menu->w     = w;
+    menu->row_h = ROW_H;
+    menu->font  = &lv_font_montserrat_16;
+
     return menu;
+}
+
+void ui_list_menu_set_font(ui_list_menu_t *menu, const lv_font_t *font, int row_h)
+{
+    if (!menu || !font || row_h <= 0) return;
+    menu->font  = font;
+    menu->row_h = row_h;
 }
 
 int ui_list_menu_add_row(ui_list_menu_t *menu, const char *text, bool with_switch)
@@ -70,16 +84,18 @@ int ui_list_menu_add_row(ui_list_menu_t *menu, const char *text, bool with_switc
 
     r->row = lv_obj_create(menu->container);
     lv_obj_remove_style_all(r->row);
-    lv_obj_set_size(r->row, LV_PCT(100), ROW_H);
-    lv_obj_set_pos(r->row, 0, idx * ROW_H);
+    lv_obj_set_size(r->row, LV_PCT(100), menu->row_h);
+    lv_obj_set_pos(r->row, 0, idx * menu->row_h);
     lv_obj_set_style_bg_opa(r->row, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(r->row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(r->row, LV_OBJ_FLAG_CLICKABLE);
 
     r->label = lv_label_create(r->row);
     lv_label_set_text(r->label, text ? text : "");
-    lv_obj_set_style_text_font(r->label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(r->label, menu->font, 0);
     lv_obj_set_style_text_color(r->label, lv_color_hex(UI_KIT_COLOR_VALUE), 0);
+    lv_obj_set_width(r->label, menu->w - (with_switch ? 60 : 12));
+    lv_label_set_long_mode(r->label, LV_LABEL_LONG_DOT);   // 放大字体后过长文字省略号截断,不越界
     lv_obj_align(r->label, LV_ALIGN_LEFT_MID, 6, 0);
 
     click_ctx_t *ctx = alloc_ctx(menu, idx);

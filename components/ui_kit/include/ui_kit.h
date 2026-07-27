@@ -79,8 +79,14 @@ void ui_chart_push(ui_chart_t *chart, int32_t value);
 typedef struct ui_list_menu_s ui_list_menu_t;
 typedef void (*ui_list_menu_cb_t)(int row_idx, void *user_data);
 
-/** @brief 创建一个可滚动列表容器(静态层——背景/边框一次性设好)。 */
+/** @brief 创建一个可滚动列表容器(静态层——背景/边框一次性设好)。默认行字体
+ *  montserrat_16 / 行高 32px。 */
 ui_list_menu_t *ui_list_menu_create(lv_obj_t *parent, int x, int y, int w, int h);
+
+/** @brief 覆盖本菜单的行字体/行高(默认 montserrat_16 / 32px)。**必须在
+ *  ui_list_menu_add_row 之前调用**,否则已建的行不会补改;不调用则维持默认,不影响
+ *  其它已用本组件的 app。 */
+void ui_list_menu_set_font(ui_list_menu_t *menu, const lv_font_t *font, int row_h);
 
 /** @brief 追加一行(静态层:行创建一次)。with_switch=true 时行右侧挂一个 lv_switch。
  *  @return 行号(0 起);已达 UI_LIST_MENU_MAX_ROWS 时返回 -1。 */

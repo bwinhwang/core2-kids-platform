@@ -310,6 +310,7 @@ static void build_list_ui(lv_obj_t *parent)
     lv_obj_add_flag(s_bus_err_label, LV_OBJ_FLAG_HIDDEN);
 
     s_list_menu = ui_list_menu_create(parent, 0, 20, 320, 156);
+    ui_list_menu_set_font(s_list_menu, &lv_font_montserrat_24, 48);   // 单元选择页字体放大(16→24px,32px 太大导致单屏可见行数太少)
     for (int i = 0; i < UB_SCAN_MAX_ROWS; i++) ui_list_menu_add_row(s_list_menu, "", false);
     ui_list_menu_add_row(s_list_menu, "Chain: (未接)", false);   // 固定最后一行
     ui_list_menu_on_click(s_list_menu, on_list_row_click, NULL);
