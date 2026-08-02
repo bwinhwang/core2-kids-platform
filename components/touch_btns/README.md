@@ -66,12 +66,23 @@ y≈271~279,整体比理论右偏 ~28px);换机复现请重新按圆圈读日志
 
 ## 截屏怎么"发"(BtnB)
 
-BtnB 调 `screenshot_dump_now()`,图**从日志串口(UART0)吐出**(平台无联网通道)。所以要有主机
+BtnB 调 `screenshot_dump_async()`,图**从日志串口(UART0)吐出**(平台无联网通道)。所以要有主机
 在听:
 
 ```bash
 python3 tools/screenshot.py --watch [PORT] [存图目录]   # 常驻监听,按 BtnB 就存一张(时间戳命名)
 ```
+
+🔴 **必须 `_async` 不能 `_dump_now`**(2026-08-02 实测教训):导出路径要跑 `lv_snapshot` 整条渲染
+管线 + printf 家族,吃栈 ~10KB;本组件轮询任务栈仅 4096,直调 `screenshot_dump_now()` 一按 BtnB
+就 `***ERROR*** A stack overflow in task touch_btns` → `SW_CPU_RESET` → 落回 launcher(现场很像
+"游戏崩了",实为截图把它撞崩)。`_async` 另起自带 10KB 栈的一次性任务,顺带让导出那几秒里按键
+轮询不停摆。**其它想加截屏的小栈任务同理。**
+
+⚠️ **测试顺序有讲究**:`screenshot.py` 每次新开串口连接都会硬复位设备 → 落回 launcher(见
+`tools/screenshot.py` 注释与平台 memory)。所以必须**先开 `--watch`,等它复位完,再在设备上点进
+游戏,最后按 BtnB**;反过来(先进游戏再开 watch)会被弹回 launcher,而 launcher 若是旧固件就
+根本没有本组件,按了毫无反应。
 
 ⚠️ **没有主机在听时,BtnB 照样把 Base64 吐进虚空、设备端无从知道有没有被接住**(无回传通道)。
 所以按下只给"已触发"震动,给不了"已保存"。脱机(拔 USB)存盘要等 power_lab 的 SPIFFS 录制设施
@@ -79,7 +90,10 @@ python3 tools/screenshot.py --watch [PORT] [存图目录]   # 常驻监听,按 B
 
 ## 待实机点检
 
+- [x] BtnB + `screenshot.py --watch` 端到端存出 PNG(2026-08-02 tilt_maze 实机,连存两张,
+      游戏全程不中断)。
 - [ ] 三个圆圈真实 x/y 范围,回填 `BTN_Y_MIN`/`X_SPLIT_*`(见上「怎么标」)。
+      ⚠️ 2026-08-02 实测按中圈落在 **x=221 y=279**,与注释记的中圈中心 187 差 34px,离 BtnC
+      分界 228 只剩 7px —— 手指再右一点就误判成关机键。分界值待复核(见下"待办")。
 - [ ] BtnA 长按 800ms 是否顺手、会不会误触;BtnC 关机 1500ms 门槛是否合适。
-- [ ] BtnB + `screenshot.py --watch` 端到端存出 PNG。
 - [ ] 屏内底部若有 app 画了可点对象,确认与 y≥240 键区不冲突(默认阈值 240 已避开屏内)。

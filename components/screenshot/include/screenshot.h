@@ -23,8 +23,14 @@ extern "C" {
  * 之后调用;core2_board_init 已代调,app 无须自己碰。重复调用安全。 */
 esp_err_t screenshot_init(void);
 
-/* 立即截图并从串口导出(阻塞到吐完,秒级)。给程序化触发留的口子。 */
+/* 立即截图并从串口导出(阻塞到吐完,秒级)。给程序化触发留的口子。
+ * ⚠️ 导出路径吃栈 ~10KB(lv_snapshot 渲染管线 + printf),**只可从栈足够大的
+ * 上下文调用**;栈小的任务(如 touch_btns 的 4096)必须改用下面的 _async。 */
 esp_err_t screenshot_dump_now(void);
+
+/* 异步截图:另起一次性任务(自带 10KB 栈)导出,立即返回。任意小栈任务可安全调用。
+ * 已有导出在进行时返回 ESP_ERR_INVALID_STATE(不排队,直接忽略)。 */
+esp_err_t screenshot_dump_async(void);
 
 #ifdef __cplusplus
 }

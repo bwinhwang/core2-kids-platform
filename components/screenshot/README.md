@@ -11,7 +11,18 @@
 ## 接入
 
 `core2_board_init()` 末尾已代调 `screenshot_init()`,**所有 app / launcher 重编即自带**,
-app 代码零改动。程序化触发另有 `screenshot_dump_now()`。
+app 代码零改动。程序化触发另有两个入口,**按调用方的栈大小二选一**:
+
+| 入口 | 行为 | 用在哪 |
+|---|---|---|
+| `screenshot_dump_now()` | 阻塞到吐完(秒级),**在调用方的栈上跑** | 只能从栈 ≥10KB 的上下文调(如本组件自己的 `shot_task`) |
+| `screenshot_dump_async()` | 另起一次性任务(自带 10KB 栈)导出,立即返回 | **小栈任务一律用这个**(如 `touch_btns` 的 4096) |
+
+🔴 **栈是硬契约**:导出路径 = `lv_snapshot` 整条渲染管线 + printf 家族(vfprintf 自己就 1KB+),
+实测 4KB 栈直调 `dump_now` 必崩 —— `***ERROR*** A stack overflow in task touch_btns` →
+`SW_CPU_RESET` → 落回 launcher。现场极像"游戏自己崩了",实为截图撞崩的(2026-08-02,BtnB 截屏)。
+两个入口共用 `s_dumping` 防重入:导出进行中再触发直接忽略(返回 `ESP_ERR_INVALID_STATE`),
+避免 UART `SHOT` 与 BtnB 撞车把串口输出交错成两段坏 Base64。
 
 依赖 `CONFIG_LV_USE_SNAPSHOT=y`(已进 `sdkconfig.platform`)。老工程第一次重编会撞上
 本组件的编译期 `#error`,照提示 `rm -f sdkconfig && idf.py fullclean && build` 即可
