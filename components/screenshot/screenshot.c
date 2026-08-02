@@ -22,8 +22,13 @@ static const char *TAG = "screenshot";
 
 #define SHOT_UART        CONFIG_ESP_CONSOLE_UART_NUM
 #define SHOT_EXT_MARGIN  16   /* 屏对象 ext_draw_size 外扩余量(像素,每边) */
+/* 导出路径吃栈大户是 lv_snapshot 的渲染管线 + printf 家族(vfprintf 自己就 1KB+)。
+ * 4KB 必崩(实测:touch_btns 4096 栈里直调 dump 触发 stack overflow → SW_CPU_RESET),
+ * 10KB 是 shot_task 长期验证过的量;任何调用方都别再拿自己的小栈跑,用 _async。 */
+#define SHOT_TASK_STACK  10240
 
 static bool s_inited;
+static volatile bool s_dumping;   /* 防重入:两路触发(UART SHOT / BtnB)串口输出不得交错 */
 
 /* ── Base64(避免引入 mbedtls 依赖,26 行自足)───────────────────── */
 static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -72,7 +77,8 @@ static int null_vprintf(const char *fmt, va_list ap)
     return 0;
 }
 
-esp_err_t screenshot_dump_now(void)
+/* 真正的导出主体。调用方须已占住 s_dumping,且栈 ≥ SHOT_TASK_STACK。 */
+static esp_err_t dump_locked(void)
 {
     /* 1) 抓帧:PSRAM 备好带外扩余量的 draw buf,持 LVGL 锁渲染活动屏 */
     const uint32_t max_w = BSP_LCD_H_RES + 2 * SHOT_EXT_MARGIN;
@@ -128,6 +134,42 @@ esp_err_t screenshot_dump_now(void)
     return ESP_OK;
 }
 
+esp_err_t screenshot_dump_now(void)
+{
+    if (s_dumping) {
+        ESP_LOGW(TAG, "已有导出在进行,忽略本次触发");
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_dumping = true;
+    esp_err_t err = dump_locked();
+    s_dumping = false;
+    return err;
+}
+
+/* 一次性导出任务:跑完自删。栈自带,故小栈调用方(如 touch_btns 4096)也安全。 */
+static void dump_once_task(void *arg)
+{
+    (void)arg;
+    dump_locked();
+    s_dumping = false;
+    vTaskDelete(NULL);
+}
+
+esp_err_t screenshot_dump_async(void)
+{
+    if (s_dumping) {
+        ESP_LOGW(TAG, "已有导出在进行,忽略本次触发");
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_dumping = true;   /* 先占位再建任务,避免连按两下起两个导出 */
+    if (xTaskCreate(dump_once_task, "shot_once", SHOT_TASK_STACK, NULL, 2, NULL) != pdPASS) {
+        s_dumping = false;
+        ESP_LOGE(TAG, "导出任务创建失败(内存不足)");
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
 /* ── 串口监听任务:收到一行 "SHOT" 即导出 ───────────────────────── */
 static void shot_task(void *arg)
 {
@@ -161,7 +203,7 @@ esp_err_t screenshot_init(void)
                             TAG, "UART%d 驱动安装失败", SHOT_UART);
     }
     ESP_RETURN_ON_FALSE(
-        xTaskCreate(shot_task, "screenshot", 10240, NULL, 2, NULL) == pdPASS,
+        xTaskCreate(shot_task, "screenshot", SHOT_TASK_STACK, NULL, 2, NULL) == pdPASS,
         ESP_ERR_NO_MEM, TAG, "监听任务创建失败");
     s_inited = true;
     ESP_LOGI(TAG, "串口截图就绪(发 \"SHOT\\n\" 触发,主机用 tools/screenshot.py)");

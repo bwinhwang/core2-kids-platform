@@ -96,7 +96,9 @@ static void act_screenshot(void)  /* BtnB 短按 */
 {
     ESP_LOGI(TAG, "BtnB 短按 → 截屏(吐日志串口;主机需 screenshot.py --watch 接)");
     haptics_play(HAPTIC_COLLECT);              /* 本地反馈="已触发";有没有被主机接住无回传通道 */
-    screenshot_dump_now();                     /* 阻塞 ~1s 吐 Base64,期间暂不轮询,可接受 */
+    /* 必须走 _async:本任务栈仅 4096,直调 dump_now 会栈溢出复位(2026-08-02 实测)。
+     * 异步另起 10KB 栈任务导出,按键轮询不停摆。 */
+    screenshot_dump_async();
 }
 
 /* 手势派发:app 绑了走 app 回调,否则走内置默认(A长按=回launcher / B短按=截屏 / C长按=关机);
