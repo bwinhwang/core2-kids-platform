@@ -38,12 +38,15 @@
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 🔄 P1+P2 核心循环已实现,build 通过(0 警告),待烧录+实机点检;P3 趣味批未做 | `apps/fish_pond/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 
 > **2026-07-17 槽位清洗**(用户拍板,结合大对象护眼约束 §2-5/§8):peekaboo / feed_monster /
 > magic_wand / busy_bus / slingshot_feed 五个 app **已从仓库删除**(git 历史留档);ota_3 空闲
 > (pipe_garden 候选未立项,SPEC 在 `apps/pipe_garden/SPEC.md`)。经过见 `docs/ROADMAP.md` §4。
+>
+> **2026-08-03 fish_pond 放弃**(用户实机试玩后拍板):ota_5 空出。教训**必读**
+> `docs/ROADMAP.md` §5——"主输入在玩法上是否真的有功能"是立项时就该验的,归因四条里的
+> ③"随技能成长的真实决策"最容易**纸面成立、实现落空**。
 >
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
 > 组件复用指南见 `docs/platform/BSP_GUIDE.md`。
@@ -381,6 +384,15 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
   上游给干这活的任务默认栈 = 7168,不够就 canary → panic → 立刻重启(本工程 `PANIC_PRINT_REBOOT`
   延时 0s,且重启即回 launcher,极易误判成"游戏被踢掉")。截屏一律 `screenshot_dump_async()`
   (2026-08-03 实证:BtnB 在 4096 栈里直调 `screenshot_dump_now()`,一按必重启)。
+- 🔴 **LVGL 把子对象裁到父的 coords**(`lv_refr.c`,未开 `LV_OBJ_FLAG_OVERFLOW_VISIBLE` 时)。
+  用"透明容器 + 子色块"拼精灵(本平台通用手法)时,**探出容器的部件(鳍/角/尾巴/触须)会被
+  静悄悄裁掉**——不报错、不掉帧,代码上完全看不出来(2026-08-03 实证:fish_pond 的鱼尾摆在
+  `x=-tail_w/2`,屏上的鱼一直是个没尾巴的椭圆,截图才发现)。要么部件全排进容器内、要么给
+  容器开 `OVERFLOW_VISIBLE`。
+- 🔴 **改布局常量先在主机离屏画一遍再烧板**:WSL 不能烧录,每轮实机都要人工介入。用 PIL 按
+  `tuning.h` 里同一套算式重画几个典型帧,几何冲突(对象互相罩住 / 出屏 / 顶穿分带)当场就能
+  看出来,比"烧一次看一眼"快一个数量级。**"中心定位的对象 vs 边界约束的常量"是高发错法**:
+  常量写的是线长/上限,对象却按中心定位,少减一个半径就整体越界(fish_pond 一次踩中三处)。
 - **渲染红线:永不每帧整屏重绘**(§6)。静态层进关画一次、关内只刷脏矩形;扁平色优先(RGB565 banding);发光/脉动烘进静态层别每帧 alpha。
 - **关卡/内容手工编排 + 加载时校验**(如 BFS 可解性),别用纯随机(tilt_maze 见 `apps/tilt_maze/SPEC.md` §4.1/§19)。
 
@@ -396,7 +408,10 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **fish_pond** 大鱼池塘 | ota_5(2026-07-17 立项,原 magic_wand 槽) | Chain Enc/Joy(UART,chain_lab 同套零新增) | 🔄 P1+P2 核心循环已实现,build 通过(0 警告),待烧录+实机点检;P3 趣味批未做 | `apps/fish_pond/README.md`(规格 `SPEC.md`) |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 2026-07-17 槽位清洗后图标分支待清理 + fish_pond 图标待加(重刷 launcher 生效) | `launcher/README.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 
 > 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
+>
+> **已删除的 app**(git 历史留档):peekaboo / feed_monster / magic_wand / busy_bus /
+> slingshot_feed(2026-07-17)、**fish_pond(2026-08-03)**。删除理由与教训见 `docs/ROADMAP.md`
+> §4 / §5——立项前先读,这几条是本平台花实机时间买来的。

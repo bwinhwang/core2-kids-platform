@@ -16,7 +16,7 @@ declare -A SLOT=(
     [chick_pour]=0x590000
     # ota_3 0x790000 空闲(2026-07-17 槽位清洗;pipe_garden 候选未立项)
     [chain_lab]=0x990000
-    [fish_pond]=0xB90000
+    # ota_5 0xB90000 空闲(2026-08-03 fish_pond 放弃删除,见 docs/ROADMAP.md §5)
 )
 
 if [[ "$APP" == "launcher" ]]; then

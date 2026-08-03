@@ -46,10 +46,11 @@ factory 分区常驻 **launcher 选择页**(本工程),6 个 ota 槽各放一个
 | ota_2 | 0x590000 | chick_pour | IMU MPU6886 |
 | ota_3 | 0x790000 | (空,2026-07-17 槽位清洗回收) | — |
 | ota_4 | 0x990000 | chain_lab | Chain Encoder/Joystick |
-| ota_5 | 0xB90000 | fish_pond(2026-07-17 立项,未烧录) | Chain Encoder/Joystick |
+| ota_5 | 0xB90000 | (空,2026-08-03 fish_pond 放弃删除回收) | — |
 
-> ⚠️ 2026-07-17 槽位清洗后,`app_main.c` 里 peekaboo / feed_monster / busy_bus 的图标分支成了
-> 死代码(设备旧 bin 未覆盖前仍会正确显示,无害);待 fish_pond 图标批一起清理 + 重刷 launcher。
+> ⚠️ `app_main.c` 里 peekaboo / feed_monster / busy_bus 的图标分支是死代码(2026-07-17 槽位清洗
+> 后遗留;设备旧 bin 未覆盖前仍会正确显示,无害)。**等下次有真要加的图标时一起清理 + 重刷
+> launcher**,不为清死代码单独刷一次(刷 launcher 是全量刷,成本比这点死代码高)。
 
 > 偏移以 `tools/flash_map.md` 为准。
 
