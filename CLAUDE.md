@@ -377,6 +377,10 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 - 🔴 **`brightness_set(0)` 不熄屏**:背光=AXP192 DCDC3,0% 仍 ~2.95V。深度省电真黑屏必须断 DCDC3 使能(REG 0x12 bit1,`core2_power_backlight()`,§7)。
 - **打盹判据只看机身动作(IMU),别看游戏对象速度**(残余倾斜下对象会永远慢爬 → 永不打盹);唤醒连续多帧去抖防单帧噪声误唤醒(§7)。
 - 🔴 **MCU 固件单元用 repeated-start 组合读会钳死总线**:读拆两笔事务(§10、`docs/units/_MCU_Firmware_I2C_Units.md`)。
+- 🔴 **LVGL 渲染跑在调用者栈上**(`LV_OS_NONE`):`lv_snapshot` / 大批 LVGL 绘制别在小栈任务里直调,
+  上游给干这活的任务默认栈 = 7168,不够就 canary → panic → 立刻重启(本工程 `PANIC_PRINT_REBOOT`
+  延时 0s,且重启即回 launcher,极易误判成"游戏被踢掉")。截屏一律 `screenshot_dump_async()`
+  (2026-08-03 实证:BtnB 在 4096 栈里直调 `screenshot_dump_now()`,一按必重启)。
 - **渲染红线:永不每帧整屏重绘**(§6)。静态层进关画一次、关内只刷脏矩形;扁平色优先(RGB565 banding);发光/脉动烘进静态层别每帧 alpha。
 - **关卡/内容手工编排 + 加载时校验**(如 BFS 可解性),别用纯随机(tilt_maze 见 `apps/tilt_maze/SPEC.md` §4.1/§19)。
 

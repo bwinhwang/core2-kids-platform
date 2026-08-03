@@ -18,8 +18,15 @@
 ⚠️ 与 serial_capture.py 相反,这里**绝不能复位芯片**(要抓的就是当前画面):
 pyserial 打开端口默认拉 DTR/RTS 会把 ESP32 带进复位/下载,所以先建对象、
 把 DTR/RTS 置低再 open。纯标准库 + pyserial(esptool 已带),无 PIL 依赖。
+
+🔴 **收流别用定长阻塞读**:pyserial 在 Windows 只给驱动 4KB 接收缓冲
+(`SetupComm(h, 4096, 4096)`),而 `read(4096)` 要凑满 4096B 才返回(115200 下 ~355ms)。
+一帧 ~20KB 连着吐,主机稍卡就静默丢字节 → 某个 $ 行短一截 → base64 "Incorrect padding"。
+所以:开口就把 OS 缓冲顶到 1MB,收流一律按 in_waiting 取(见 _read_avail),
+并且**单行解码失败不许弄崩整个监听**(报出是第几行、丢弃该帧、继续听)。
 """
 import base64
+import binascii
 import os
 import re
 import struct
@@ -36,6 +43,13 @@ OUT  = _args[1] if len(_args) > 1 else ("." if WATCH else "screenshot.png")
 
 HDR_RE = re.compile(rb"<<<SHOT (.+?)>>>")
 
+CHUNK = 57          # 每个 $ 行携带的原始字节数,必须与 components/screenshot/screenshot.c 一致
+RX_BUF = 1 << 20    # OS 串口接收缓冲(Windows 默认才 4KB,不顶大就丢字节)
+
+
+class FrameError(Exception):
+    """一帧收坏了(丢字节 / 行被日志插断 / 长度对不上)——可重来,不该崩进程。"""
+
 
 def open_port_no_reset(port: str) -> serial.Serial:
     s = serial.Serial()
@@ -45,29 +59,67 @@ def open_port_no_reset(port: str) -> serial.Serial:
     s.dtr = False   # open 前置好:IO0 保持高(不进下载)
     s.rts = False   # EN 保持高(不复位)
     s.open()
+    try:
+        s.set_buffer_size(rx_size=RX_BUF, tx_size=4096)   # 仅 Windows 实现,别处忽略
+    except Exception:
+        pass
     return s
 
 
-def _collect_payload(s: serial.Serial, hdr: dict, buf: bytes) -> tuple[bytes, bool]:
+def _read_avail(s: serial.Serial, cap: int = 1 << 16) -> bytes:
+    """取当前可读的全部字节(空闲时最多阻塞一个 timeout 等 1 字节)。
+    不能用 read(定长):那会等凑满才返回,期间 OS 缓冲被撑爆就丢字节。"""
+    n = s.in_waiting
+    return s.read(max(1, min(n, cap)))
+
+
+def _collect_payload(s: serial.Serial, hdr: dict, buf: bytes) -> tuple[bytes, bytes]:
     """已拿到头、buf 是头之后的残留;继续读 $ 数据行到 <<<SHOT-END>>>。
-    返回 (RLE 字节流, 是否完整收齐)。"""
+    返回 (RLE 字节流, 收完后剩下的 buf);任何不完整/损坏抛 FrameError。"""
     rle_len = int(hdr[b"rle"])
+    n_lines = (rle_len + CHUNK - 1) // CHUNK
+    tail_len = rle_len - CHUNK * (n_lines - 1)      # 末行不足 57B
+
     payload = bytearray()
     deadline = time.time() + 60          # 115200 下最坏 ~30s,留裕量
     done = False
+    idx = 0
     while time.time() < deadline and not done:
-        chunk = s.read(4096)
+        chunk = _read_avail(s)
         if chunk:
             buf += chunk
         while b"\n" in buf:
             line, buf = buf.split(b"\n", 1)
             line = line.strip()
             if line.startswith(b"$"):
-                payload += base64.b64decode(line[1:])
+                idx += 1
+                want = tail_len if idx == n_lines else CHUNK
+                payload += _decode_line(line, idx, n_lines, want)
             elif line.startswith(b"<<<SHOT-END"):
                 done = True
                 break
-    return bytes(payload), (done and len(payload) == rle_len)
+    if not done:
+        raise FrameError(f"超时:只收到 {idx}/{n_lines} 行(设备中途停了?串口被别的程序占了?)")
+    if idx != n_lines:
+        raise FrameError(f"行数不对:收 {idx} 行,应 {n_lines} 行(丢了整行)")
+    if len(payload) != rle_len:
+        raise FrameError(f"长度不对:收 {len(payload)}B,应 {rle_len}B")
+    return bytes(payload), buf
+
+
+def _decode_line(line: bytes, idx: int, n_lines: int, want: int) -> bytes:
+    """解一行 $Base64。坏行不静默跳过——跳过会让后面全部错位,直接判这帧废,
+    并把现场打出来:短了=主机丢字节,行里混进日志文本=设备端日志没静默干净。"""
+    body = line[1:]
+    try:
+        dec = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise FrameError(
+            f"第 {idx}/{n_lines} 行 Base64 解不开({e});该行 {len(body)} 字符"
+            f"(应 {(want + 2) // 3 * 4}),原文 {body[:24]!r}…{body[-16:]!r}") from None
+    if len(dec) != want:
+        raise FrameError(f"第 {idx}/{n_lines} 行解出 {len(dec)}B,应 {want}B(行被插断?)")
+    return dec
 
 
 def grab(s: serial.Serial) -> tuple[dict, bytes]:
@@ -80,7 +132,7 @@ def grab(s: serial.Serial) -> tuple[dict, bytes]:
         buf = b""
         hdr = None
         while time.time() < deadline:
-            chunk = s.read(4096)
+            chunk = _read_avail(s)
             if chunk:
                 buf += chunk
                 m = HDR_RE.search(buf)
@@ -91,10 +143,11 @@ def grab(s: serial.Serial) -> tuple[dict, bytes]:
         if hdr is None:
             print(f"[{attempt + 1}/3] 设备没应答 SHOT,重试…(固件带 screenshot 组件了吗?)")
             continue
-        payload, ok = _collect_payload(s, hdr, buf)
-        if ok:
+        try:
+            payload, _ = _collect_payload(s, hdr, buf)
             return hdr, payload
-        print(f"[{attempt + 1}/3] 传输不完整(收 {len(payload)}/{int(hdr[b'rle'])} B),重试…")
+        except FrameError as e:
+            print(f"[{attempt + 1}/3] {e},重试…")
     sys.exit("✗ 三次都没抓到完整截图,检查:串口被占用?固件是否已重刷带 screenshot 组件?")
 
 
@@ -104,7 +157,7 @@ def watch_loop(s: serial.Serial, out_dir: str) -> None:
     print(f"● 监听 {PORT} …按设备屏下 BtnB(中键)截屏,存到 {os.path.abspath(out_dir)}/(Ctrl-C 退出)")
     buf = b""
     while True:
-        chunk = s.read(4096)
+        chunk = _read_avail(s)
         if chunk:
             buf += chunk
         m = HDR_RE.search(buf)
@@ -113,13 +166,17 @@ def watch_loop(s: serial.Serial, out_dir: str) -> None:
                 buf = buf[-256:]          # 无头的日志噪声,别无限攒
             continue
         hdr = dict(kv.split(b"=", 1) for kv in m.group(1).split(b" "))
-        payload, ok = _collect_payload(s, hdr, buf[m.end():])
-        buf = b""
-        if not ok:
-            print(f"⚠ 收到一帧但不完整({len(payload)}/{int(hdr[b'rle'])} B),丢弃")
+        try:
+            payload, buf = _collect_payload(s, hdr, buf[m.end():])
+        except FrameError as e:
+            print(f"⚠ 这帧收坏了:{e}\n  → 丢弃,再按一次 BtnB 即可(继续监听中)")
+            buf = b""
             continue
         out = os.path.join(out_dir, time.strftime("screenshot_%Y%m%d_%H%M%S.png"))
-        save_png(hdr, payload, out)
+        try:
+            save_png(hdr, payload, out)
+        except FrameError as e:
+            print(f"⚠ 这帧解不开:{e}\n  → 丢弃,再按一次 BtnB 即可(继续监听中)")
 
 
 def rle16_decode(rle: bytes, expect: int) -> bytes:
@@ -130,7 +187,7 @@ def rle16_decode(rle: bytes, expect: int) -> bytes:
         out += rle[i + 1:i + 3] * n
         i += 3
     if len(out) != expect:
-        sys.exit(f"✗ RLE 解出 {len(out)} B,应为 {expect} B(流损坏)")
+        raise FrameError(f"RLE 解出 {len(out)}B,应为 {expect}B(流损坏)")
     return bytes(out)
 
 
@@ -185,6 +242,8 @@ def main() -> None:
             save_png(hdr, rle, OUT)
     except KeyboardInterrupt:
         print("\n退出监听")
+    except FrameError as e:
+        sys.exit(f"✗ {e}")
     finally:
         s.close()
 

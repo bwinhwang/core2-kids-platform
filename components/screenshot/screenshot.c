@@ -118,11 +118,14 @@ static esp_err_t dump_locked(void)
     char line[2 + (CHUNK + 2) / 3 * 4 + 1];
     printf("\n<<<SHOT w=%u h=%u fmt=rgb565le enc=rle16 raw=%u rle=%u crc32=%08x>>>\n",
            (unsigned)w, (unsigned)h, (unsigned)(w * h * 2), (unsigned)rle_len, (unsigned)crc);
-    for (size_t i = 0; i < rle_len; i += CHUNK) {
+    for (size_t i = 0, ln = 0; i < rle_len; i += CHUNK, ln++) {
         size_t n = rle_len - i < CHUNK ? rle_len - i : CHUNK;
         line[0] = '$';
         b64_line(rle + i, n, line + 1);
         puts(line);                             /* puts 自带 \n */
+        /* 控制台 TX 是忙等轮询(vfs_uart 的 tx_char 不 yield),整帧要吐好几秒;
+         * 每 16 行让出一次,让 IDLE 跑到、喂饱 task_wdt(否则刷一屏 TWDT 警告)。 */
+        if ((ln & 0x0F) == 0x0F) vTaskDelay(1);
     }
     printf("<<<SHOT-END>>>\n");
     fflush(stdout);
