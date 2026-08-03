@@ -10,6 +10,10 @@ managed_components/
 __pycache__/
 *.pyc
 
+# tools/screenshot.py 抓的实机截图(默认落在仓库根,--watch 每按一次 BtnB 存一张)。
+# 只是排查现场的一次性证据,别进版本库;确实要留档的截图放 docs/ 下并在文档里引用。
+screenshot_*.png
+
 # 编辑器/系统
 .vscode/
 .DS_Store
