@@ -14,7 +14,7 @@ static lv_obj_t *s_ball;
 static lv_obj_t *s_home;
 static lv_obj_t *s_eye_l, *s_eye_r, *s_pupil_l, *s_pupil_r;
 static lv_obj_t *s_stars[2];
-static lv_obj_t *s_hazard;   // 巡逻怪(本关无则 NULL,§14.2026-07-27)
+static lv_obj_t *s_hazard[MAZE_HAZARDS];   // 巡逻怪(该槽位无则 NULL,§14.2026-07-27)
 
 static float s_squash;   // 撞墙挤扁脉冲(0~1),逐帧衰减
 
@@ -309,7 +309,7 @@ void render_load_level(const level_t *lvl)
 
     lv_obj_clean(s_maze);
     s_stars[0] = s_stars[1] = NULL;
-    s_hazard = NULL;
+    for (int i = 0; i < MAZE_HAZARDS; i++) s_hazard[i] = NULL;
 
     for (int row = 0; row < MAZE_ROWS; row++) {
         for (int col = 0; col < MAZE_COLS; col++) {
@@ -344,12 +344,13 @@ void render_load_level(const level_t *lvl)
         lv_obj_set_style_transform_pivot_y(s_stars[i], STAR_IMG_H / 2, 0);
     }
 
-    // 巡逻怪(本关有才建):红尖刺球精灵,不追踪方向(只沿直线段平移)
-    if (lvl->hazard_a.col >= 0) {
-        s_hazard = lv_image_create(s_maze);
-        lv_image_set_src(s_hazard, &s_hazard_dsc);
-        vec2_t ha = maze_cell_center(lvl->hazard_a);
-        render_hazard_update(ha.x, ha.y);
+    // 巡逻怪(本关有几只建几只):红尖刺球精灵,不随行进方向翻转(尖刺球本就各向同性)
+    for (int i = 0; i < lvl->n_hazards && i < MAZE_HAZARDS; i++) {
+        if (lvl->hazards[i].n_pts < 2) continue;
+        s_hazard[i] = lv_image_create(s_maze);
+        lv_image_set_src(s_hazard[i], &s_hazard_dsc);
+        vec2_t ha = maze_cell_center(lvl->hazards[i].pts[0]);
+        render_hazard_update(i, ha.x, ha.y);
     }
 
     vec2_t s = maze_cell_center(lvl->start);
@@ -482,11 +483,11 @@ void render_hint_stars(void)
     bsp_display_unlock();
 }
 
-void render_hazard_update(float cx, float cy)
+void render_hazard_update(int idx, float cx, float cy)
 {
-    if (!s_hazard) return;
+    if (idx < 0 || idx >= MAZE_HAZARDS || !s_hazard[idx]) return;
     bsp_display_lock(0);
-    lv_obj_set_pos(s_hazard, (int)(cx - HZ_IMG / 2), (int)(cy - HZ_IMG / 2));
+    lv_obj_set_pos(s_hazard[idx], (int)(cx - HZ_IMG / 2), (int)(cy - HZ_IMG / 2));
     bsp_display_unlock();
 }
 

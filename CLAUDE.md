@@ -34,7 +34,7 @@
 
 | App | 槽 | 外设 | 状态 | 文档 |
 |---|---|---|---|---|
-| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验证(M0–M5+打盹) | `apps/tilt_maze/SPEC.md` + `README.md` |
+| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
@@ -404,7 +404,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 
 | App | 槽 | 外设 | 状态 | 竣工记录 |
 |---|---|---|---|---|
-| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验证(M0–M5+打盹) | `apps/tilt_maze/README.md`(规格 `SPEC.md`) |
+| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/README.md`(规格 `SPEC.md`) |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |

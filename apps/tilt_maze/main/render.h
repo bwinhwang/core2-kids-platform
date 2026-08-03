@@ -29,8 +29,8 @@ void render_hint_stars(void);
 /** @brief 家脉动快/慢切换(接近时加快,§5.2)。 */
 void render_home_excited(bool fast);
 
-/** @brief 巡逻怪每帧移动(本关无巡逻怪则空操作);(cx,cy)为屏幕坐标。 */
-void render_hazard_update(float cx, float cy);
+/** @brief 第 idx 只巡逻怪每帧移动(该只不存在则空操作);(cx,cy)为屏幕坐标。 */
+void render_hazard_update(int idx, float cx, float cy);
 
 // ── 特效层(事件触发,短生命周期,§9.1/§9.5)──────────────────────────
 /** @brief 球被"顶"了一下:挤扁回弹(撞墙);下一帧 update 起效。 */

@@ -39,11 +39,20 @@ static bool             s_home_hinted;   // 已在本次"停在家门口"提示�
 // 静态陷阱格 + 巡逻怪(2026-07-27 放弃零失败,见 maze.h 顶注)
 static bool             s_trap_active;
 static vec2_t           s_trap_px;
-static bool             s_hazard_active;
-static vec2_t           s_hazard_a, s_hazard_b, s_hazard_pos;
-static float            s_hazard_t;     // 0~1,沿 a→b 插值位置
-static float            s_hazard_dir;  // +1 向 b 走,-1 向 a 走(triangle wave 往返)
-static float            s_hazard_dwell; // 到端点后剩余停留 ms(>0 时不移动,可预判节奏)
+
+// 巡逻怪运行态(每关最多 MAZE_HAZARDS 只;走法见 maze.h 的 hazard_t)
+typedef struct {
+    vec2_t px[MAZE_HAZARD_PTS];  // 拐点的像素坐标
+    int    n;
+    bool   loop;
+    int    seg;                  // 当前所在段:px[seg] → px[下一个]
+    float  t;                    // 0~1,段内插值位置
+    float  dir;                  // 往返用:+1 前进 / -1 回头;绕圈恒 +1
+    float  dwell;                // 端点剩余停留 ms(>0 不移动);绕圈不用
+    vec2_t pos;
+} hazard_run_t;
+static hazard_run_t     s_haz[MAZE_HAZARDS];
+static int              s_n_haz;
 
 static int    s_frame;                 // 进入当前状态后的帧数
 
@@ -92,14 +101,24 @@ static void start_play(int idx)
     s_trap_active = (s_level->trap.col >= 0);
     if (s_trap_active) s_trap_px = maze_cell_center(s_level->trap);
 
-    s_hazard_active = (s_level->hazard_a.col >= 0);
-    if (s_hazard_active) {
-        s_hazard_a = maze_cell_center(s_level->hazard_a);
-        s_hazard_b = maze_cell_center(s_level->hazard_b);
-        s_hazard_t = 0.0f;
-        s_hazard_dir = 1.0f;
-        s_hazard_dwell = 0.0f;
-        s_hazard_pos = s_hazard_a;
+    s_n_haz = s_level->n_hazards;
+    if (s_n_haz > MAZE_HAZARDS) s_n_haz = MAZE_HAZARDS;
+    for (int i = 0; i < s_n_haz; i++) {
+        const hazard_t *d = &s_level->hazards[i];
+        hazard_run_t *h = &s_haz[i];
+        h->n = (d->n_pts > MAZE_HAZARD_PTS) ? MAZE_HAZARD_PTS : d->n_pts;
+        h->loop = d->loop;
+        if (h->n < 2) {   // 数据不全:本槽位当没怪(verify_mazes.py 会先拦下,这里只兜底)
+            ESP_LOGE(TAG, "L%d 怪%d 只有 %d 个拐点,忽略", s_level->id, i + 1, h->n);
+            h->n = 0;
+            continue;
+        }
+        for (int k = 0; k < h->n; k++) h->px[k] = maze_cell_center(d->pts[k]);
+        h->seg = 0;
+        h->t = 0.0f;
+        h->dir = 1.0f;
+        h->dwell = 0.0f;
+        h->pos = h->px[0];   // 重进本关时怪一律回 pts[0](与球回起点同步,失败后局面可复现)
     }
 
     ledstrip_fx_set_base(LED_BASE_AMBIENT);
@@ -226,27 +245,55 @@ static void play_tick(const imu_accel_t *acc)
         }
     }
 
-    // 巡逻怪:a↔b 直线往返(triangle wave),到端点停一下再回头(可预判节奏,
-    // 不是无休止扫——2026-07-27 加,配合下方"陷阱格必有安全绕路"同一批修复),
-    // 碰到同样退回本关起点
-    if (s_hazard_active) {
-        float sx = s_hazard_b.x - s_hazard_a.x, sy = s_hazard_b.y - s_hazard_a.y;
-        float seg_len = sqrtf(sx * sx + sy * sy);
-        if (s_hazard_dwell > 0.0f) {
-            s_hazard_dwell -= PHYS_PERIOD_MS;
-        } else if (seg_len > 0.001f) {
-            s_hazard_t += s_hazard_dir * (HAZARD_SPEED * PHYS_DT / seg_len);
-            if (s_hazard_t >= 1.0f) { s_hazard_t = 1.0f; s_hazard_dir = -1.0f; s_hazard_dwell = HAZARD_DWELL_MS; }
-            else if (s_hazard_t <= 0.0f) { s_hazard_t = 0.0f; s_hazard_dir = 1.0f; s_hazard_dwell = HAZARD_DWELL_MS; }
-        }
-        s_hazard_pos.x = s_hazard_a.x + sx * s_hazard_t;
-        s_hazard_pos.y = s_hazard_a.y + sy * s_hazard_t;
-        render_hazard_update(s_hazard_pos.x, s_hazard_pos.y);
+    // 巡逻怪:沿 pts 直角折线走,碰到退回本关起点。两种走法(2026-08-03 七写加绕圈,
+    // 为什么绕圈怪能站在必经路上而直线怪不能,见 maze.h 顶注):
+    //   loop=false —— pts[0]…pts[n-1] 往返(triangle wave),两端各停一下,节奏靠停顿预判;
+    //   loop=true  —— pts[n-1] 接回 pts[0] 单向绕圈、不停,节奏靠"一圈恒定时长"预判。
+    for (int i = 0; i < s_n_haz; i++) {
+        hazard_run_t *h = &s_haz[i];
+        if (h->n < 2) continue;
 
-        float dx = s_phys.pos.x - s_hazard_pos.x, dy = s_phys.pos.y - s_hazard_pos.y;
+        int nxt = h->loop ? (h->seg + 1) % h->n : h->seg + 1;
+        vec2_t a = h->px[h->seg], b = h->px[nxt];
+        float sx = b.x - a.x, sy = b.y - a.y;
+        float seg_len = sqrtf(sx * sx + sy * sy);
+
+        if (h->dwell > 0.0f) {
+            h->dwell -= PHYS_PERIOD_MS;
+        } else if (seg_len > 0.001f) {
+            float speed = h->loop ? HAZARD_LOOP_SPEED : HAZARD_SPEED;
+            h->t += h->dir * (speed * PHYS_DT / seg_len);
+            if (h->t >= 1.0f) {
+                if (h->loop) {                        // 绕圈:进下一段,不停
+                    h->t -= 1.0f;
+                    h->seg = nxt;
+                } else if (h->seg + 2 < h->n) {       // 往返:折线中途,进下一段
+                    h->t -= 1.0f;
+                    h->seg++;
+                } else {                              // 往返:到尾端,停一下再回头
+                    h->t = 1.0f; h->dir = -1.0f; h->dwell = HAZARD_DWELL_MS;
+                }
+            } else if (h->t <= 0.0f) {
+                if (h->seg > 0) {                     // 往返:折线中途,退回上一段
+                    h->t += 1.0f;
+                    h->seg--;
+                } else {                              // 往返:到首端,停一下再往前
+                    h->t = 0.0f; h->dir = 1.0f; h->dwell = HAZARD_DWELL_MS;
+                }
+            }
+            a = h->px[h->seg];
+            nxt = h->loop ? (h->seg + 1) % h->n : h->seg + 1;
+            b = h->px[nxt];
+            sx = b.x - a.x; sy = b.y - a.y;
+        }
+        h->pos.x = a.x + sx * h->t;
+        h->pos.y = a.y + sy * h->t;
+        render_hazard_update(i, h->pos.x, h->pos.y);
+
+        float dx = s_phys.pos.x - h->pos.x, dy = s_phys.pos.y - h->pos.y;
         float hit = BALL_R + HAZARD_R;
         if (dx * dx + dy * dy < hit * hit) {
-            trigger_fail(s_hazard_pos.x, s_hazard_pos.y);
+            trigger_fail(h->pos.x, h->pos.y);
             return;
         }
     }
