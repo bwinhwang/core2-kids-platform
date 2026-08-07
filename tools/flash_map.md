@@ -12,7 +12,7 @@
 | ota_0 | `0x190000` | tilt_maze 倾斜迷宫 | `python -m esptool --chip esp32 -p <PORT> write-flash 0x190000 apps/tilt_maze/build/tilt_maze.bin` |
 | ota_1 | `0x390000` | busy_knobs 旋钮忙碌台(8Encoder) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x390000 apps/busy_knobs/build/busy_knobs.bin` |
 | ota_2 | `0x590000` | chick_pour 小鸡回窝(IMU;原 peekaboo 槽,2026-07-12 回收) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/chick_pour/build/chick_pour.bin` |
-| ota_3 | `0x790000` | (空——2026-07-17 槽位清洗:feed_monster→busy_bus 均已删;pipe_garden 候选未立项) | — |
+| ota_3 | `0x790000` | clock_turn 转转钟(教育卡带,Chain Encoder @PORT.C;2026-08-06 立项) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/clock_turn/build/clock_turn.bin` |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
 | ota_5 | `0xB90000` | (空,2026-08-03 fish_pond 放弃删除回收,见 `docs/ROADMAP.md` §5) | — |
 | storage | `0xD90000` | 共享素材区(spiffs,~2.4M) | 将来放烘焙精灵图/音效 |

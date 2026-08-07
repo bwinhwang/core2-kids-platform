@@ -14,7 +14,7 @@ declare -A SLOT=(
     [tilt_maze]=0x190000
     [busy_knobs]=0x390000
     [chick_pour]=0x590000
-    # ota_3 0x790000 空闲(2026-07-17 槽位清洗;pipe_garden 候选未立项)
+    [clock_turn]=0x790000
     [chain_lab]=0x990000
     # ota_5 0xB90000 空闲(2026-08-03 fish_pond 放弃删除,见 docs/ROADMAP.md §5)
 )
