@@ -1,0 +1,149 @@
+// clock_turn 可调参数 —— M0(单元 bring-up)+ M1(静态钟面/两针联动)+ M2/M4(信息区三子区、
+// MODE_FREE/MODE_QUIZ 两模式、按键揭晓、随机出题、渐进提示弧)
+//
+// 🔴 与 tools/preview.py 是同一套几何算式的两份拷贝(SPEC.md §6.1/§9/§11 平台坑):
+//    改这里任何布局常量,先跑 preview.py 出图确认,再改这里;反之亦然。
+// 2026-08-06 语音整章作废(SPEC §8),M3 里程碑随之删除;本文件不含任何语音/PCM 相关常量。
+// M5(静止思考宽限/放弃演示/连续使用提醒)、M6(单元容错完整 UI)仍未开工,相关常量
+// 暂不写"占位数值"制造假一致(REST_HINT_MIN 例外,§5.8 已声明保留占位)。
+#pragma once
+
+// ── 编码器标定(SPEC.md §10;preview.py 不含输入,这两条另加)───────────────
+#define ENC_DEG_PER_STEP   15      // 事实值(apps/chain_lab/main/tuning.h 已验证),24 格/圈,仅存档
+#define ENC_INVERT          0      // ★ 实机标定:顺时针转=时间前进;若反了改 1
+#define MIN_PER_STEP         5     // 核心手感常量:编码器 1 格 = 5 分钟(SPEC §5.1 推导)
+
+// ── 钟面几何(= tools/preview.py CLOCK_CX/CY/R)────────────────────────────
+#define CLOCK_CX     101
+#define CLOCK_CY     120
+#define CLOCK_R       95
+
+// ── 两针(= preview.py HAND_MIN_*/HAND_HOUR_*/HAND_EDGE/CAP_R)────────────
+#define HAND_MIN_LEN   72          // 分针:细而长
+#define HAND_MIN_W      5
+#define HAND_HOUR_LEN  42          // 时针:粗而短;必须 < NUM_RING_R,否则整点遮数字(SPEC §6.1)
+#define HAND_HOUR_W     8
+#define HAND_EDGE       2          // 指针描边(钟面色):两针近重叠(如 6:30)时的分界(SPEC §5.3.1)
+#define CAP_R           8          // 中心帽,随指针粗细同步收小
+
+// ── 刻度(= preview.py TICK_OUT/TICK_MAJ_IN/TICK_MIN_IN;宽度抄自其内联字面量)─
+#define TICK_OUT        89
+#define TICK_MAJ_IN     79
+#define TICK_MIN_IN     82
+#define TICK_MAJ_W       5         // 整点刻度线宽(preview.py draw_face: width=5*SS → 实际 5px)
+#define TICK_MIN_W       2         // 分刻度线宽(preview.py draw_face: width=2*SS → 实际 2px)
+#define FACE_BORDER_W    5         // 钟面外框(preview.py draw_face: outline width=5*SS → 实际 5px)
+
+// ── 12 刻度数字(= preview.py NUM_RING_R/NUM_H;装饰级,不受 §8 64px 约束)───
+#define NUM_RING_R      64
+#define NUM_H           13         // preview.py 用桌面 TTF 按此像素高渲染;真机取最接近的内置位图
+                                    // 字体 montserrat_18(数字实高 ≈13px)。⚠️ 不是 LV_FONT_DEFAULT
+                                    // (=montserrat_14,数字实高仅 ≈10px,矮 ~23%)。字体档位在
+                                    // sdkconfig.defaults 启用,用处在 clock_ui.c::create_static_face
+
+// ── 配色(= preview.py 对应 RGB 元组的十六进制值,仅列 M0+M1 用到的几个)───
+#define C_BG        0x2C303E       // 背景(preview.py C_BG = (44,48,62))
+#define C_FACE      0xF5E8CD       // 钟面底色(preview.py C_FACE)
+#define C_RIM       0xC69E62       // 钟面外框(preview.py C_RIM)
+#define C_TICK_MAJ  0x8C643C       // 整点刻度(preview.py C_TICK_MAJ)
+#define C_TICK_MIN  0xC4AC8A       // 分刻度(preview.py C_TICK_MIN)
+#define C_NUM       0x705030       // 刻度数字(preview.py C_NUM)
+#define C_HAND      0x3A322C       // 两针 + 中心帽同色,暖黑(preview.py C_HAND/C_CAP;§5.3.1 硬规矩)
+
+// ── M0 施工用:单元探测/重试节奏(SPEC §10 表未列,属本里程碑的工程常量)───
+#define ATTACH_RETRY_MS   2000     // 没探到 Chain Encoder 时的重扫周期(SPEC §1 通用容错形态)
+#define ERR_STREAK_LOST      8     // 连续读失败多少次判"拔线/断电"(同 chain_lab ERR_STREAK_LOST)
+#define NODE_RGB_BRIGHTNESS 40     // 节点板载 RGB 亮度档 0~100(护眼压低,同 chain_lab)
+
+// ═══════════════════════════════════════════════════════════════════════
+// M2/M4 新增:信息区三子区 + 两模式 + 按键揭晓 + 随机出题 + 渐进提示弧
+// (= tools/preview.py 对应常量;preview.py 用小写变量名,这里按平台惯例转 UPPER_SNAKE)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── 信息区总体(= preview.py INFO_X0/X1;三子区纵向分带,SPEC §5.3)────────
+#define INFO_X0        201         // 信息区左沿(钟面最宽处 x=196,留 5px)
+#define INFO_X1        315         // 信息区右沿
+
+#define Z_STAT_Y0        6         // ① 状态条(家长向):两位模式开关 + 连接点 + 电量
+#define Z_STAT_Y1       40
+#define Z_PANEL_Y0      46         // ② 数字钟(孩子向):读数,信息区主角
+#define Z_PANEL_Y1     148
+#define Z_FACE_Y0      154         // ③ 反馈脸(孩子向):idle/yay/huh
+#define Z_FACE_Y1      234
+
+#define CARD_R           8         // 子区圆角(= preview.py CARD_R)
+
+// ── ① 状态条:两位模式开关(= preview.py MODE_*/LINK_*/BATT_*/HOLD_BAR_*,SPEC §5.3.5)──
+#define MODE_SLOT_W     27
+#define MODE_SLOT_H     20
+#define MODE_SLOT_Y0    11         // 槽 y 11..31
+#define MODE_A_X0      207         // 槽A(人形=MODE_FREE)207..234
+#define MODE_B_X0      237         // 槽B(屏形=MODE_QUIZ)237..264
+#define LINK_CX        277         // 旋钮连接点(绿=在/红=拔了)
+#define LINK_CY         21
+#define LINK_R           4
+#define BATT_X0        288         // 电量壳(本轮只画静态满格,不接 AXP192,§5.3 TODO)
+#define BATT_Y0         15
+#define BATT_W          21
+#define BATT_H          12
+#define HOLD_BAR_X0    205         // 长按进度条:宽度随进度从 X0 长到 X1
+#define HOLD_BAR_X1    311
+#define HOLD_BAR_Y0     33
+#define HOLD_BAR_H       4
+#define MODE_HOLD_MS  1500         // 长按切模式门槛(比家长菜单 3s 短,§5.3.5 理由)
+
+// ★ 长按热区:**刻意大于状态条卡片**(卡片 201..315 × 6..40),不与视觉边界对齐。
+//   LVGL 在手指滑出对象时发 PRESS_LOST、长按进度清零重来;卡片只有 34px 高(≈4mm),
+//   按住 1.5s 期间指腹的自然位移足以出界。上下左右各留余量,下沿吃进子区②卡片 6px
+//   —— 子区②不接触摸,无损失。实机若仍难触发,先加大这四个数,再考虑放宽 MODE_HOLD_MS。
+//   通用做法见根 CLAUDE.md §8「触摸靶画得比视觉靶大一圈」。
+#define MODE_HOTSPOT_X0  196
+#define MODE_HOTSPOT_X1  320
+#define MODE_HOTSPOT_Y0    0
+#define MODE_HOTSPOT_Y1   52
+
+// ── ② 数字钟读数(= preview.py PANEL_*/READOUT_H,SPEC §5.3.2/§5.4)────────
+#define PANEL_CX       258         // = 子区②中心
+#define PANEL_CY        97
+#define READOUT_H       25         // 读数字高;上限由最宽读数「12:55」反推,见 SPEC §6.1
+                                    // 🔴 须用 montserrat_34(数字实高≈0.72×字号≈24.5px),
+                                    // 不是 montserrat_18(那档给 12 刻度数字用,字高仅 13px)
+#define PANEL_HW        57         // = 子区②半宽
+#define PANEL_HH        51         // = 子区②半高
+#define PANEL_BORDER     3         // MODE_QUIZ 态橙描边宽度(占内腔)
+#define READOUT_HOLD_MS 4000       // ★ MODE_FREE 按键揭晓后停留多久再淡回占位点(§5.4);
+                                    // 留太久 = 又变回实时读数
+
+// ── ③ 反馈脸(= preview.py FACE_R,原"说话脸"改名,SPEC §5.3.4)─────────────
+#define FACE_R          34         // 半径→φ68,压着根 CLAUDE.md §8 的 64px 线,不许再小
+
+// ── 渐进提示弧(= preview.py HINT_R/HINT_ARC_W1/W2,SPEC §5.6/§6.1)────────
+// 🔴 走时针角不是分针角:分针角 60min 一个周期会把跨小时的差值算错,时针角 720min 内
+//    单调、唯一编码 Δt。半径卡在时针尖(42+8/2=46)与数字圈内沿(64-13/2=57.5)之间。
+#define HINT_R          50
+#define HINT_ARC_W1      4         // 第 1 次按错:细而暗
+#define HINT_ARC_W2      7         // 第 2 次及以后:粗而亮
+
+// ── 配色(信息区/两模式/提示弧,= preview.py 对应 RGB 元组;M0+M1 已有的色见上)──
+#define C_DIGIT     0xEEE8DC       // 数字钟读数(MODE_FREE 揭晓态)
+#define C_QUIZ      0xFF9A3C       // 暖橙:MODE_QUIZ 的统一强调色
+#define C_HINT      0xFFC448       // 提示弧-第1次按错(暗)
+#define C_HINT2     0xFFE08C       // 提示弧-第2次及以后(更亮)
+#define C_GREEN     0x6EC878       // MODE_QUIZ 答对:数字变绿
+#define C_CARD      0x383E50       // 子区底卡(比背景略亮)
+#define C_CARD_Q    0x4A3624       // MODE_QUIZ 态子区②(暖橙暗调)
+#define C_CARD_HI   0x4E566C       // 状态条①选中槽底(比 C_CARD 更亮一档)
+#define C_MUTED     0x7A8296       // 家长向图标,刻意压暗
+#define C_LINK_OK   0x78BE78
+#define C_LINK_BAD  0xCE6054
+
+// ── 出题(= preview.py 无对应,纯逻辑常量;SPEC §5.5)────────────────────────
+#define QUIZ_GRAIN_MIN   5         // ★ 出题粒度(分钟),决定题池大小(144 格,esp_random 抽取);
+                                    // 实机嫌转动量大就提到 30(收窄到整点+半点 24 个候选)
+#define WIN_HOLD_MS   2000         // 答对后庆祝停留多久,之后自动出下一题(SPEC §4)
+
+// ── 旋钮中心键(SPEC §5.4)────────────────────────────────────────────────
+#define BTN_DEBOUNCE_MS 150        // 边沿去抖窗口:去抖期内的按下不算新的一次
+
+// ── 保留占位(本批未接入,见 SPEC §5.8/§13 M5)───────────────────────────
+#define REST_HINT_MIN   15         // 连续使用提醒(分钟);常量占位,逻辑未实现

@@ -1,0 +1,14 @@
+# clock_turn 工程差异项(共享默认值见 ../../sdkconfig.platform)
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../../partitions.csv"
+
+# 🔴 12 刻度数字用 montserrat_18(数字实高 ≈13px = preview.py 的 NUM_H)。
+#    LVGL 默认只编 montserrat_14,其数字实高仅 ≈10px —— 比 SPEC §6.1 定的 13 又矮 ~23%。
+#    ⚠️ 保持 LV_FONT_DEFAULT = 14 不动(那是全局默认),只把钟面数字显式指到 18,
+#       见 main/clock_ui.c 的 num_font。改本文件后须删 sdkconfig 再 fullclean(CLAUDE.md §11)。
+CONFIG_LV_FONT_MONTSERRAT_18=y
+
+# 🔴 2026-08-06 新增:子区②数字钟读数(7:30)须字高 25px,Montserrat 数字实高
+#    ≈0.72×字号 → 需要 montserrat_34(≈24.5px)。不是 montserrat_18(那档矮太多,给 12
+#    刻度数字用)。见 main/clock_ui.c 的 s_panel_label。改本文件后须删 sdkconfig 再
+#    fullclean(CLAUDE.md §11)。
+CONFIG_LV_FONT_MONTSERRAT_34=y
