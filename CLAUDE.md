@@ -48,13 +48,11 @@
 > §0.2/§8):大人现场说出的时间表述比任何录音/TTS 都更丰富,固定语音重复几百遍先受不了的是
 > 大人。`storage` 分区(0xD90000)暂无使用者,**不再是 clock_turn 的基础设施依赖**。
 
-> **2026-07-17 槽位清洗**(用户拍板,结合大对象护眼约束 §2-5/§8):peekaboo / feed_monster /
-> magic_wand / busy_bus / slingshot_feed 五个 app **已从仓库删除**(git 历史留档);ota_3 空闲
-> (pipe_garden 候选未立项,SPEC 在 `apps/pipe_garden/SPEC.md`)。经过见 `docs/ROADMAP.md` §4。
->
-> **2026-08-03 fish_pond 放弃**(用户实机试玩后拍板):ota_5 空出。教训**必读**
-> `docs/ROADMAP.md` §5——"主输入在玩法上是否真的有功能"是立项时就该验的,归因四条里的
-> ③"随技能成长的真实决策"最容易**纸面成立、实现落空**。
+> **已删除的 app**(git 历史留档,**立项前必读删除理由**):peekaboo / feed_monster /
+> magic_wand / busy_bus / slingshot_feed(2026-07-17 槽位清洗,结合大对象护眼约束
+> §2-5/§8)、**fish_pond(2026-08-03 实机试玩后放弃)**。经过与教训见 `docs/ROADMAP.md`
+> §4 / §5 —— 这几条是本平台花实机时间买来的,尤其 fish_pond 那条:「主输入在玩法上
+> 是否真的有功能」是立项时就该验的。ota_5 空闲;ota_3 已由 clock_turn 接管。
 >
 > 做新 app 从 §10 起步:`tools/new_app.sh <名>` 脚手架;分区偏移/单刷命令见 `tools/flash_map.md`;
 > 组件复用指南见 `docs/platform/BSP_GUIDE.md`。
@@ -86,11 +84,11 @@
 |---|---|
 | SoC | ESP32-D0WDQ6-V3(**经典 ESP32 / LX6,不是 S3**),IDF target = `esp32` |
 | 内存 | 16MB flash + 8MB PSRAM,**但经典 ESP32 直映射上限 ≈4MB**,大缓冲按 4MB 算 |
-| 屏 | ILI9342C,SPI,**320×240**,MOSI=23/MISO=38/SCK=18/CS=5/DC=15;RST/BL/PWR 走 AXP192 |
-| 触摸 | FT6336U,内部 I2C(0x38),INT=39 |
+| 屏 | ILI9342C,SPI,**320×240**;RST/BL/PWR 走 AXP192(SPI 引脚见 HARDWARE,BSP 已配) |
+| 触摸 | FT6336U,内部 I2C `0x38` |
 | **IMU** | **MPU6886**(内部 I2C `0x68`)。**本机由 Bottom2 提供**(Core2 背板缺失);仍是 MPU6886、仍在 0x68,**不是** BMI270,**勿照搬 BMI270 代码** |
 | 内部 I2C | G21(SDA)/G22(SCL):AXP192 0x34、FT6336U 0x38、BM8563 0x51、**MPU6886 0x68** |
-| 音频 | NS4168(I2S class-D 功放);SPK_EN 在 **AXP192 IO2**;BCLK=12/LRCK=0/DATA=2 |
+| 音频 | NS4168(I2S class-D 功放);SPK_EN 在 **AXP192 IO2**(I2S 引脚见 HARDWARE) |
 | **震动马达** | **AXP192 LDO3** —— 一条触觉反馈通道(见 §5) |
 | 电源 | **AXP192(0x34)接管屏/触摸/喇叭/马达供电**;**不初始化 AXP192 → 屏黑、无声、无触摸** |
 | 电池 | **由 Bottom2 提供 500mAh**(Core2 自身 390mAh 背板缺失);容量有限,**必须做 idle 省电**(见 §7) |
@@ -267,9 +265,12 @@ components/
 **核心信号——机身动作量**(每帧算一次):`s_motion = |Δax| + |Δay| + |Δaz|`(帧间三轴加速度变化,g)。平放静止
 ≈0.005~0.03(噪声尖峰偶达 ~0.08),被拿起/倾斜 >0.12(`IDLE_WAKE_THRESH`)。**「有没有人在玩」只由此判定**,与游戏对象的运动无关。
 
-- **进入打盹(PLAY→IDLE)**:`s_motion` 连续低于阈值累计 750 帧(12s)→ 背光 60%→10%、灯带转慢呼吸。
-- **进入深度省电(IDLE→DEEP_IDLE)**:再静止 3750 帧(60s)→ `brightness_set(0)` → **`core2_power_backlight(false)`(断 DCDC3 → 背光真全黑)** → 灯带熄 → `core2_power_bus_5v(false)`(切 M-Bus 5V,断灯带/单元供电 + 省 SY7088 静态电流)→ 轮询周期降到 120ms。
-- **唤醒(去抖)**:要**连续 3 帧** `s_motion>0.12` 才算真动 → 依次 `bus_5v(true)` → `backlight(true)`(重启 DCDC3)→ 背光回 play → 灯带回常态 → `HAPTIC_WAKE` → 回 PLAY。
+- **IDLE 打盹**:背光 60%→10%、灯带转慢呼吸。
+- **DEEP_IDLE 深度省电**:`core2_power_backlight(false)` 断 DCDC3(**背光真全黑**)+ 灯带熄
+  + `core2_power_bus_5v(false)` 切 M-Bus 5V(断灯带/单元供电、省 SY7088 静态电流)+ 降轮询频率。
+- **唤醒**:去抖后依次 `bus_5v(true)` → `backlight(true)` → 恢复亮度/灯带 → `HAPTIC_WAKE` → PLAY。
+
+> 阈值、帧数、去抖窗口这些**实现细节见 `components/core2_sleep/README.md`**,本节只留契约与坑。
 
 **两条独立电源**(均在 `core2_power` 经 AXP192 读改写):
 
@@ -411,19 +412,9 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 
 ## 12. 各 App 竣工索引
 
-各 app 的 **as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,玩法规格在 SPEC:
+**App 清单与状态见 §1「各 App 索引」**(本文只维护那一份,别再抄第二份)。各 app 的
+**as-built(定案数值 / 落地差异 / 待实机 / 特有踩坑)在各自 README**,玩法规格在 SPEC。
 
-| App | 槽 | 外设 | 状态 | 竣工记录 |
-|---|---|---|---|---|
-| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/README.md`(规格 `SPEC.md`) |
-| **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
-| **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
-| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 教育卡带(豁免清单见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
-| **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
-
-> 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、多 App 分区改造等)见 git log 与各 README。
->
-> **已删除的 app**(git 历史留档):peekaboo / feed_monster / magic_wand / busy_bus /
-> slingshot_feed(2026-07-17)、**fish_pond(2026-08-03)**。删除理由与教训见 `docs/ROADMAP.md`
-> §4 / §5——立项前先读,这几条是本平台花实机时间买来的。
+> 平台层跨应用踩坑(EXTEN/DCDC3/repeated-start/桌面省电)已归入 §7 / §10 / §11;各 app
+> README 里那些坑的**具体现场**保留作案例。历史演进(关卡从 4→…→16×12、8Encoder 排障、
+> 多 App 分区改造等)见 git log 与各 README。
