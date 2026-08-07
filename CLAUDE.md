@@ -37,8 +37,16 @@
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
+| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 **平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
+
+> ⚠️ **clock_turn 是「教育应用」不是游戏卡带**:§2 五原则里"零失败"的**表现形式**、以及
+> ROADMAP 的选型铁律(内容轴厚度 / 即拿即玩 / 独自可玩)对它显式豁免,但 §6 渲染红线、
+> §8 大对象护眼(反而更严)、§7 省电、§9 分区纪律一条不减。豁免清单见其 SPEC §0.2,
+> **别拿游戏卡带的标准去卡它**。**2026-08-06 语音播报整章作废**(理由见 `apps/clock_turn/SPEC.md`
+> §0.2/§8):大人现场说出的时间表述比任何录音/TTS 都更丰富,固定语音重复几百遍先受不了的是
+> 大人。`storage` 分区(0xD90000)暂无使用者,**不再是 clock_turn 的基础设施依赖**。
 
 > **2026-07-17 槽位清洗**(用户拍板,结合大对象护眼约束 §2-5/§8):peekaboo / feed_monster /
 > magic_wand / busy_bus / slingshot_feed 五个 app **已从仓库删除**(git 历史留档);ota_3 空闲
@@ -292,7 +300,10 @@ components/
 **家长控制(隐藏,防误触)**:
 - 入口:**底部触摸虚拟键长按 3s** 或特定手势(幼儿不会无意触发)。
 - 菜单项:**音量、屏幕亮度、震动开关、难度档、背景音乐开关**;大图标 + 滑块,家长一眼可用。
-- ⚠️ 已知**家长菜单长按判定偏难触发**(tilt_maze 实测反馈,待排查 FT6336U 触摸/LVGL 长按);热区太窄/长按中途手指微移会打断。
+- 🔴 **做「屏内长按」交互的通用做法:触摸靶画得比视觉靶大一圈。** LVGL 在手指滑出对象时发
+  `PRESS_LOST`、长按进度清零重来;视觉边界和触摸边界**不必一致**,靶子放大一圈能吃掉按住
+  1.5~3s 期间指腹的自然位移。clock_turn 的状态条长按切模式按此办(`MODE_HOTSPOT_*`,热区
+  比卡片上下各放一截)。
 
 ---
 
@@ -407,6 +418,7 @@ python3 tools/screenshot.py [/dev/ttyUSB0] [out.png]   # 最后一行打印 PNG 
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/README.md`(规格 `SPEC.md`) |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
+| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 教育卡带(豁免清单见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 
