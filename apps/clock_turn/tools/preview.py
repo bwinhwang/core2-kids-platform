@@ -10,6 +10,11 @@
   - 渐进提示弧改走时针角、半径 50(SPEC §5.6/§6.1),不再是分针角/半径 84
   - 数字钟揭晓机制从"轻触整齐时刻播报"改成"按键揭晓"(SPEC §5.4)
 
+2026-08-10 降难度批(用户实机反馈"对幼儿难度偏高"):
+  - 时针改砖红 C_HAND_HOUR —— 推翻 §5.3.1「两针同色」硬规矩,代价记在 SPEC §5.3.1 修订段
+  - 步进 MIN_PER_STEP 5→15 分钟(tuning.h,本文件无输入不含该常量)→ **样帧时刻必须是
+    15 的倍数**,否则画的是实机永远转不到的姿态(本轮已把 6:50 / 7:35 两帧改掉)
+
 用法:  python3 apps/clock_turn/tools/preview.py [输出目录]
 产物:  见 main() 底部的样帧列表(320x240,与实机同分辨率)
 
@@ -78,7 +83,10 @@ C_RIM       = (198, 158, 98)
 C_TICK_MAJ  = (140, 100, 60)
 C_TICK_MIN  = (196, 172, 138)
 C_NUM       = (112, 80, 48)
-C_HAND      = (58, 50, 44)      # 两针同色(暖黑)——真表不用颜色区分针
+C_HAND      = (58, 50, 44)      # 分针 + 中心帽 + 反馈脸五官(暖黑)
+C_HAND_HOUR = (196, 69, 58)     # ★ 时针:砖红(2026-08-10 用户改判,推翻 §5.3.1「两针同色」,
+                                #   代价=真挂钟上没有这条线索,见 SPEC §5.3.1 修订段)。
+                                #   长短 42:72 + 粗细 8:5 这两条原生区分一条都不撤,颜色是第三条冗余。
 C_DIGIT     = (238, 232, 220)   # 数字钟读数(FREE 揭晓态)
 C_CAP       = (58, 50, 44)
 C_QUIZ      = (255, 154, 60)    # 暖橙:QUIZ 模式的统一强调色
@@ -361,7 +369,7 @@ def frame(t, path, *, quiz_target=None, miss=0, win=False, mood="idle",
     #    "粗短=时针"这条唯一的区分线索当场失效(SPEC §5.3.1)。时针在上则得到
     #    「粗短桩 + 细长尖」,重合姿态照样读得出来。clock_ui.c::create_dynamic_hands 同此序。
     draw_hand(d, ma, HAND_MIN_LEN, HAND_MIN_W, C_HAND)
-    draw_hand(d, ha, HAND_HOUR_LEN, HAND_HOUR_W, C_HAND)
+    draw_hand(d, ha, HAND_HOUR_LEN, HAND_HOUR_W, C_HAND_HOUR)
     draw_cap(d)
     # 信息区
     draw_cards(d, quiz)
@@ -428,7 +436,9 @@ def check_layout():
     assert 2 * FACE_R >= 64, f"反馈脸 φ{2 * FACE_R} < 64px 护眼线"
     assert HAND_HOUR_LEN + HAND_HOUR_W / 2 < NUM_RING_R - NUM_H / 2, "时针盖住刻度数字"
     assert HAND_MIN_LEN < CLOCK_R, "分针出钟面"
-    # 同色两针的唯一区分线索(SPEC §5.3.1):时针必粗必短。两条都塌了就没法读了。
+    # 两针的**几何**区分线索(SPEC §5.3.1):时针必粗必短。两条都塌了就没法读了。
+    # ⚠️ 2026-08-10 时针改砖红后这两条断言**不放宽**:颜色是加上去的第三条冗余,不是几何的
+    #    替代品——真挂钟上没有颜色线索,几何才是要迁移出去的那一条(SPEC §5.3.1 修订段)。
     assert HAND_HOUR_W > HAND_MIN_W, "时针不比分针粗 —— 重合时无从区分"
     assert HAND_HOUR_LEN < HAND_MIN_LEN, "时针不比分针短 —— 重合时无从区分"
 
@@ -474,9 +484,9 @@ def main():
     # ── MODE_QUIZ ──────────────────────────────────────────────────────
     frame(5 * 60, p("quiz_pending.png"), quiz_target=7 * 60 + 30)                    # 出题态,尚未按错过
     frame(5 * 60, p("quiz_huh_miss1.png"), quiz_target=7 * 60 + 30, miss=1, mood="huh")   # 第1次按错:细暗弧
-    frame(6 * 60 + 50, p("quiz_huh_miss2.png"), quiz_target=7 * 60 + 30, miss=2, mood="huh")  # 第2次+按错:粗亮弧
-    # Δt=95min 跨小时的题:验证时针角(不是分针角)给出正确的短边方向
-    frame(6 * 60, p("quiz_huh_cross_hour.png"), quiz_target=7 * 60 + 35, miss=1, mood="huh")
+    frame(6 * 60 + 45, p("quiz_huh_miss2.png"), quiz_target=7 * 60 + 30, miss=2, mood="huh")  # 第2次+按错:粗亮弧
+    # Δt=105min 跨小时的题:验证时针角(不是分针角)给出正确的短边方向
+    frame(6 * 60, p("quiz_huh_cross_hour.png"), quiz_target=7 * 60 + 45, miss=1, mood="huh")
     frame(7 * 60 + 30, p("quiz_win.png"), quiz_target=7 * 60 + 30, win=True)          # 答对:庆祝+绿字+yay脸
 
     frame_no_unit(p("no_unit.png"))

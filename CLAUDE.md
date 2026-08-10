@@ -37,7 +37,7 @@
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
-| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 **平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
+| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 **平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)+ **降难度批**(时针砖红 / 步进 5→15 分钟)已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 

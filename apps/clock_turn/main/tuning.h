@@ -11,7 +11,14 @@
 // ── 编码器标定(SPEC.md §10;preview.py 不含输入,这两条另加)───────────────
 #define ENC_DEG_PER_STEP   15      // 事实值(apps/chain_lab/main/tuning.h 已验证),24 格/圈,仅存档
 #define ENC_INVERT          0      // ★ 实机标定:顺时针转=时间前进;若反了改 1
-#define MIN_PER_STEP         5     // 核心手感常量:编码器 1 格 = 5 分钟(SPEC §5.1 推导)
+#define MIN_PER_STEP        15     // 核心手感常量:编码器 1 格 = 15 分钟(SPEC §5.1 推导)
+                                    // 🔴 2026-08-10 由 5 改 15(用户实机反馈:对幼儿难度偏高)。
+                                    // 后果:t 恒为 15 的倍数 → 分针只落 12/3/6/9 四个位置
+                                    // (整点/一刻/半点/三刻),题池 144→48。三个教学知识点
+                                    // 全部保留(推导见 SPEC §5.1 修订行)。
+                                    // 🔴 改这个数**必须**同步改 QUIZ_GRAIN_MIN(见其注释),
+                                    // 否则会出到永远转不到的题 —— 那是本卡带唯一能造出"死局"
+                                    // 的方式,直接违反零失败。
 
 // ── 钟面几何(= tools/preview.py CLOCK_CX/CY/R)────────────────────────────
 #define CLOCK_CX     101
@@ -48,7 +55,13 @@
 #define C_TICK_MAJ  0x8C643C       // 整点刻度(preview.py C_TICK_MAJ)
 #define C_TICK_MIN  0xC4AC8A       // 分刻度(preview.py C_TICK_MIN)
 #define C_NUM       0x705030       // 刻度数字(preview.py C_NUM)
-#define C_HAND      0x3A322C       // 两针 + 中心帽同色,暖黑(preview.py C_HAND/C_CAP;§5.3.1 硬规矩)
+#define C_HAND      0x3A322C       // 分针 + 中心帽 + 反馈脸五官,暖黑(preview.py C_HAND/C_CAP)
+#define C_HAND_HOUR 0xC4453A       // ★ 时针:砖红。**2026-08-10 用户改判**,推翻 §5.3.1 原「两针同色」
+                                    // 硬规矩(理由:实机对幼儿难度偏高)。代价见 SPEC §5.3.1 修订段:
+                                    // 颜色是**真挂钟上不存在的线索**,有迁移失败风险。
+                                    // 🔴 长短(42:72)+ 粗细(8:5)这两条原生区分**一条都不许撤**——
+                                    // 颜色是加上去的第三条冗余,不是替代品(preview.py check_layout
+                                    // 的两条断言仍在守这件事)。要回退:把本行改回 0x3A322C 即可。
 
 // ── M0 施工用:单元探测/重试节奏(SPEC §10 表未列,属本里程碑的工程常量)───
 #define ATTACH_RETRY_MS   2000     // 没探到 Chain Encoder 时的重扫周期(SPEC §1 通用容错形态)
@@ -138,8 +151,11 @@
 #define C_LINK_BAD  0xCE6054
 
 // ── 出题(= preview.py 无对应,纯逻辑常量;SPEC §5.5)────────────────────────
-#define QUIZ_GRAIN_MIN   5         // ★ 出题粒度(分钟),决定题池大小(144 格,esp_random 抽取);
-                                    // 实机嫌转动量大就提到 30(收窄到整点+半点 24 个候选)
+#define QUIZ_GRAIN_MIN  15         // ★ 出题粒度(分钟),决定题池大小(48 格,esp_random 抽取);
+                                    // 🔴 **必须是 MIN_PER_STEP 的整数倍**:t 只能落在 MIN_PER_STEP
+                                    // 的倍数上,更细的题目永远转不到 = 死局(§5.5)。
+                                    // 2026-08-10 随 MIN_PER_STEP 5→15 同步改(题池 144→48,
+                                    // 平均转动量 ~36 格→~12 格)。还嫌多就提到 30(整点+半点 24 个)。
 #define WIN_HOLD_MS   2000         // 答对后庆祝停留多久,之后自动出下一题(SPEC §4)
 
 // ── 旋钮中心键(SPEC §5.4)────────────────────────────────────────────────

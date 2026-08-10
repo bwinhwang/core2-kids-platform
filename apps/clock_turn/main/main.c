@@ -138,6 +138,8 @@ static bool poll_encoder(void)
 }
 
 // 转一格的落格反馈:按 t%15==0 分三档(整点/半点/一刻)+ 普通格(SPEC §5.2/§7)。
+// ⚠️ 2026-08-10 MIN_PER_STEP=15 后 t 恒是 15 的倍数 → FEEDBACK_TICK_PLAIN 这一档**不再可达**,
+//    每一格都落在整齐时刻上,区分退化成整点/半点/一刻三级。分支照留(步长调细即恢复)。
 static void emit_step_feedback(void)
 {
     feedback_tick_kind_t kind = FEEDBACK_TICK_PLAIN;

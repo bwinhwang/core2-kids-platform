@@ -39,7 +39,7 @@ int clock_model_next_quiz(int current_t, int last_target, int grain_min, uint32_
     if (grain_min <= 0) {
         grain_min = 1;
     }
-    int pool_n = CLOCK_MODEL_T_PERIOD / grain_min;   // grain_min=5 → 144
+    int pool_n = CLOCK_MODEL_T_PERIOD / grain_min;   // grain_min=15 → 48
     if (pool_n <= 0) {
         pool_n = 1;
     }

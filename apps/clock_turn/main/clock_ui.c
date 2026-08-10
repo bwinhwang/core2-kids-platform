@@ -238,12 +238,15 @@ static void create_dynamic_hands(void)
     // 🔴 创建顺序 = z-order,不可交换(2026-08-06 实机截图实证,同 preview.py::frame):
     //    分针描边宽 HAND_MIN_W+2*HAND_EDGE = 9 > 时针本体宽 HAND_HOUR_W = 8。分针若在上,
     //    两针重合时(12:00 最典型)那圈钟面色描边把时针整条抹掉,屏上只剩一条 5px 细线,
-    //    "粗短=时针"这条唯一的区分线索当场失效(SPEC §5.3.1)。故**分针在下、时针在上**,
+    //    "粗短=时针"这条区分线索当场失效(SPEC §5.3.1)。故**分针在下、时针在上**,
     //    重合姿态得到「粗短桩 + 细长尖」,照样读得出来。
+    //    ⚠️ 2026-08-10 时针改用 C_HAND_HOUR(砖红)后本条**依然有效**:描边是钟面色,
+    //    与两针各自什么颜色无关,分针在上照样能把时针抹掉一整条。别因为"现在有颜色了"
+    //    就以为画序可以随便换。
     s_min.edge  = make_hand_segment(s_clock_group, HAND_MIN_W  + HAND_EDGE * 2, C_FACE);
     s_min.line  = make_hand_segment(s_clock_group, HAND_MIN_W,                  C_HAND);
     s_hour.edge = make_hand_segment(s_clock_group, HAND_HOUR_W + HAND_EDGE * 2, C_FACE);
-    s_hour.line = make_hand_segment(s_clock_group, HAND_HOUR_W,                 C_HAND);
+    s_hour.line = make_hand_segment(s_clock_group, HAND_HOUR_W,                 C_HAND_HOUR);
 
     s_cap = lv_obj_create(s_clock_group);          // 中心帽:创建顺序在两针之后 → z-order 最上
     lv_obj_remove_style_all(s_cap);
