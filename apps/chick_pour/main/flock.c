@@ -5,7 +5,6 @@
 #include <math.h>
 #include "esp_log.h"
 #include "esp_random.h"
-
 static const char *TAG = "flock";
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -185,9 +184,26 @@ static void resolve_obstacles(animal_t *a)
 
 // ── 门判定(SPEC §5.2:单向 + 语义匹配)──────────────────────────────
 // 动物中心进入门区:种类匹配 → 捕获(从物理仿真移除,位置停在原地当动画起点);
-// 不匹配 → 沿门法线温柔弹出(GATE_BOUNCE_SPEED;鸡窝法线 +x,池塘法线 -x),
-// 切向速度减半("温柔");位置推到门区外沿,防下一帧立刻再触发。
+// 不匹配 → 沿门法线温柔弹出(GATE_BOUNCE_SPEED),切向速度减半("温柔");位置推到
+// 门区外沿,防下一帧立刻再触发。
+// 🔴 2026-08-10 图纸批:弹出方向不再写死"鸡窝恒 +x、池塘恒 -x"——图纸 B 两个家都
+// face=RIGHT(门都朝右),旧写法会把池塘的错投动物弹回鸡窝墙里。方向现在按该家的
+// HOUSE_FACE/POND_FACE 算:face=RIGHT → 推向 gate.x1(+x,GATE_BOUNCE_SPEED),
+// face=LEFT → 推向 gate.x0(-x,-GATE_BOUNCE_SPEED),对两个家通用。
 // 弹出反馈的节流(BOUNCE_SND_COOLDOWN_MS,每只)由 game_state 做,物理弹出每次照做。
+static void bounce_from_gate(animal_t *a, rect_t gate, home_face_t face)
+{
+    if (face == HOME_FACE_RIGHT) {
+        a->x  = gate.x1 + 1.0f;
+        a->vx = GATE_BOUNCE_SPEED;
+    } else {
+        a->x  = gate.x0 - 1.0f;
+        a->vx = -GATE_BOUNCE_SPEED;
+    }
+    a->vy *= 0.5f;
+    a->gate_event = GATE_EV_BOUNCE;
+}
+
 static void gate_check(animal_t *a)
 {
     if (in_rect(a->x, a->y, HOUSE_GATE)) {
@@ -195,28 +211,26 @@ static void gate_check(animal_t *a)
             a->active = false;
             a->gate_event = GATE_EV_CAPTURE;
         } else {
-            a->x  = HOUSE_GATE.x1 + 1.0f;
-            a->vx = GATE_BOUNCE_SPEED;
-            a->vy *= 0.5f;
-            a->gate_event = GATE_EV_BOUNCE;
+            bounce_from_gate(a, HOUSE_GATE, HOUSE_FACE);
         }
     } else if (in_rect(a->x, a->y, POND_GATE)) {
         if (a->kind == ANIMAL_DUCK) {
             a->active = false;
             a->gate_event = GATE_EV_CAPTURE;
         } else {
-            a->x  = POND_GATE.x0 - 1.0f;
-            a->vx = -GATE_BOUNCE_SPEED;
-            a->vy *= 0.5f;
-            a->gate_event = GATE_EV_BOUNCE;
+            bounce_from_gate(a, POND_GATE, POND_FACE);
         }
     }
 }
 
 // ── 布点 ─────────────────────────────────────────────────────────────
-// 预置网格(init 与 §5.4 兜底共用):场地中段两行,带 ±10px 抖动,构造上安全永不失败。
-// y 偏移 ±34:行离门区上下边(y=98/142)≥12px,动物出生时不会踩进门区触发判定
-// (P1 时是 ±26,P2 引入门区后上调,理由即此)。
+// 预置网格(仅 flock_init 用,boot 恒为图纸 A):场地中段两行,带 ±10px 抖动,针对图纸 A
+// 的家位置(cy=120)手调安全。y 偏移 ±34:行离门区上下边(y=98/142)≥12px,动物出生时
+// 不会踩进门区触发判定(P1 时是 ±26,P2 引入门区后上调,理由即此)。
+// 🔴 2026-08-10 图纸批:这份"两行+cy=120"假设只对图纸 A 成立——图纸 B/C 的家挪了 cy,
+// 固定两行可能踩进新门区(实测:图纸 C 鸡窝 cy=78 时 y=86 那一行恰好扫过鸡窝门区)。
+// 所以 §5.4 重散兜底改用下面的 scatter_grid_fallback()(对任意图纸安全),grid_layout()
+// 只留给 flock_init 的一次性开局摆位(图纸恒为 A,这份手调值继续有效)。
 static void grid_layout(float xs[], float ys[], int n)
 {
     const int cols = (n + 1) / 2;
@@ -278,6 +292,37 @@ static bool scatter_validate(const float xs[], const float ys[], int n)
         }
     }
     return true;
+}
+
+// §5.4 网格兜底(flock_scatter 专用,对**任意图纸**安全):不像 grid_layout() 那样假设
+// cy=120,而是仿 tools/preview.py grid_fallback() 栅栏内粗网格扫描,每个候选点复用
+// scatter_pt_ok()(已经是图纸感知的——它读的 HOUSE_RECT/POND_RECT/HOUSE_GATE/POND_GATE/
+// CORNER_BUSH 全局量在 scene_apply_blueprint() 时已按当前图纸写好)。步长 30×26 均
+// > SCATTER_MIN_GAP=24,网格点天然两两够开,不需要额外抖动(抖动反而可能把已扫描确认
+// 安全的点推回障碍里)。
+static int scatter_grid_fallback(float xs[], float ys[], int n)
+{
+    int placed = 0;
+    for (int gy = 28; gy < (int)PLAY_H - 20 && placed < n; gy += 26) {
+        for (int gx = 24; gx < (int)PLAY_W - 20 && placed < n; gx += 30) {
+            if (scatter_pt_ok((float)gx, (float)gy, xs, ys, placed)) {
+                xs[placed] = (float)gx;
+                ys[placed] = (float)gy;
+                placed++;
+            }
+        }
+    }
+    // 终极兜底(理论保护,三张已落地图纸实测扫描阶段就能摆满 10 只,走不到这里):
+    // 栅栏内朴素步进,不再避让家/门/灌木——落地可能稍难看,但下一帧碰撞解算会把动物
+    // 推开,永不卡死、永不数组越界(§2 原则 1"零失败"落到底)。
+    for (int gy = (int)PLAY_BOUNDS.y0; gy <= (int)PLAY_BOUNDS.y1 && placed < n; gy += (int)(2 * ANIMAL_R)) {
+        for (int gx = (int)PLAY_BOUNDS.x0; gx <= (int)PLAY_BOUNDS.x1 && placed < n; gx += (int)(2 * ANIMAL_R)) {
+            xs[placed] = (float)gx;
+            ys[placed] = (float)gy;
+            placed++;
+        }
+    }
+    return placed;
 }
 
 // ── 公开接口 ─────────────────────────────────────────────────────────
@@ -401,8 +446,11 @@ bool flock_scatter(animal_t animals[], int n)
         random_ok = false;
     }
     if (!random_ok) {
-        ESP_LOGW(TAG, "重散走预置网格兜底");
-        grid_layout(xs, ys, n);
+        ESP_LOGW(TAG, "重散走网格兜底(图纸感知,§5.4)");
+        int placed = scatter_grid_fallback(xs, ys, n);
+        if (placed < n) {
+            ESP_LOGE(TAG, "网格兜底也没摆满 %d/%d 只(不该发生,已用终极步进垫齐)", placed, n);
+        }
     }
 
     for (int i = 0; i < n; i++) {
@@ -416,4 +464,24 @@ bool flock_scatter(animal_t animals[], int n)
         animals[i].bump_speed = 0;
     }
     return random_ok;
+}
+
+void flock_shake_impulse(animal_t animals[], int n)
+{
+    for (int i = 0; i < n; i++) {
+        animal_t *a = &animals[i];
+        if (!a->active) continue;
+
+        // 随机方向,不指向任何家(不是"帮玩家瞄准",见 flock.h 头注)。
+        float ang = (float)(esp_random() % 6283) / 1000.0f;   // 0~2π(mrad 步进取随机角)
+        a->vx += cosf(ang) * SHAKE_IMPULSE_SPEED;
+        a->vy += sinf(ang) * SHAKE_IMPULSE_SPEED;
+
+        float sp = sqrtf(a->vx * a->vx + a->vy * a->vy);
+        if (sp > VEL_MAX) {
+            float k = VEL_MAX / sp;
+            a->vx *= k;
+            a->vy *= k;
+        }
+    }
 }

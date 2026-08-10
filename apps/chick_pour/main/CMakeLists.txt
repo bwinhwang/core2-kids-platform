@@ -2,6 +2,8 @@ idf_component_register(
     SRCS
         "app_main.c"
         "flock.c"
+        "layout.c"          # 版面几何/图纸表/加载校验(无 LVGL 依赖,主机可直编:
+                            # tools/verify_host.sh)
         "scene.c"
         "critters.c"
         "feedback.c"

@@ -33,5 +33,7 @@ void feedback_emit_party(void);
  *         全体小跳视觉由 game_state 直接调 critters_hop_all()。 */
 void feedback_emit_hello(void);
 
-/** @brief 摇一摇彩蛋(SPEC §6):叽嘎合唱 + HAPTIC_BUMP_MED + 灯带彩虹一闪;不改进度。 */
+/** @brief 摇一摇(SPEC §3/§6,2026-08-10 从彩蛋升级为功能键):叽嘎合唱 + HAPTIC_BUMP_MED +
+ *         灯带彩虹一闪。本函数只管这四通道反馈;冲散门口堆积的随机冲量由 game_state 直接
+ *         调 flock_shake_impulse()(物理域动作,不经反馈队列,同 critters_hop_all 的先例)。 */
 void feedback_emit_shake(void);

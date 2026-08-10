@@ -9,7 +9,10 @@
 #define ANIMAL_COUNT        10     // ★ 视觉混乱就减到 8
 #define ANIMAL_KINDS        2      // ★ 分拣认知过难可降 1(全归一家),过易升 3
                                     //   P1 代码按 ANIMAL_KINDS==2、5:5 均分实现,调此值需同步改 flock_init
-#define ANIMAL_R            8
+#define ANIMAL_R            11     // 2026-08-10 美术批:8→11(φ22)。脏矩形 10 只
+                                    // ≈13520px/帧 < §6.2 预算 15000(余量仅 10%,不许再放大;
+                                    // 见 tools/preview.py 打印)。GATE_DEPTH(scene.h)随之从
+                                    // 10 上调到 13,维持"门判定先于家墙碰撞"的不变量。
 #define GAIN_JITTER_PCT     12     // 每只增益抖动 ±%,群体散开的关键
 #define SEP_PAD             2      // 软分离触发间距余量
 #define SEP_CORRECT_PCT     35     // ★ 每帧位置修正比例(太大抖、太小叠)
@@ -24,7 +27,8 @@
 #define TILT_ALPHA          0.32f
 
 // ── 门 / 布点(SPEC §9,P2 已启用)─────────────────────────────────────
-#define GATE_W              44     // 门区宽 ≈ 动物直径×2.75
+#define GATE_W              44     // 门区宽 ≈ 动物直径×2(2026-08-10 ANIMAL_R 8→11 后
+                                    // 比值从 2.75 降到 2,仍够宽松,不是硬约束,未跟着改)
 #define GATE_BOUNCE_SPEED   70
 #define BOUNCE_SND_COOLDOWN_MS 300 // 同一只动物的弹出反馈节流(§5.2,game_state 侧计时)
 #define CORNER_BUSH_R       36     // 四角灌木碰撞圆半径(见 scene.h)
@@ -41,6 +45,10 @@
 #define SHAKE_THRESH        1.2f   // 摇一摇:帧间三轴加速度变化和 > 此值算"晃了一下"(busy_knobs 定案)
 #define SHAKE_NEEDED        3      // 带泄漏攒够几下才算"摇一摇",防单次磕碰误触
 #define SHAKE_COOLDOWN_MS   2000   // 触发后冷却(SPEC 值;busy_knobs 用 1500,本作群体音效更长取 2000)
+#define SHAKE_IMPULSE_SPEED 90.0f  // ★ 2026-08-10 摇一摇从彩蛋升级为功能键(SPEC §3/§11③):
+                                    // 给每只在场动物一个随机方向速度冲量,冲散门口堆积
+                                    // (flock_shake_impulse,flock.h)。待实机标定:太小冲不散
+                                    // 堆、太大把整群甩出视野边界(VEL_MAX=180 封顶兜底)。
 
 // ── P1 补充项(SPEC §9 未列,编译/手感落地必需,逐项注明理由)──────────
 

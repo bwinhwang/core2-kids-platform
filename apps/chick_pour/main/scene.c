@@ -1,53 +1,28 @@
 #include "scene.h"
+#include "flock.h"      // animal_kind_t(ANIMAL_CHICK/ANIMAL_DUCK 索引 homes[])——纯枚举,无 LVGL 依赖
 #include "tuning.h"
 
+#include <math.h>
 #include "bsp/m5stack_core_2.h"
 #include "lvgl.h"
+#include "esp_log.h"
 #include "esp_random.h"
 
-// 版面几何:栅栏内墙 = 动物活动边界;鸡窝/池塘紧贴栅栏内侧从边缘中段探进场地;
-// 四角灌木圆心内缩 BUSH_INSET,半径 CORNER_BUSH_R 较大,允许圆的一部分探出屏幕外
-// (只是让角落变斜坡,不需要整圆都可见)。
-const rect_t PLAY_BOUNDS = {
-    FENCE_THICK + ANIMAL_R, FENCE_THICK + ANIMAL_R,
-    PLAY_W - FENCE_THICK - ANIMAL_R, PLAY_H - FENCE_THICK - ANIMAL_R,
-};
-const rect_t HOUSE_RECT = {
-    FENCE_THICK, PLAY_H / 2 - HOUSE_H / 2,
-    FENCE_THICK + HOUSE_W, PLAY_H / 2 + HOUSE_H / 2,
-};
-const rect_t POND_RECT = {
-    PLAY_W - FENCE_THICK - POND_W, PLAY_H / 2 - POND_H / 2,
-    PLAY_W - FENCE_THICK, PLAY_H / 2 + POND_H / 2,
-};
+static const char *TAG = "scene";
 
-// 门区(SPEC §5.2):高 GATE_W=44(≈动物直径×2.75,容差给够),居中于家的墙面;
-// 向场内伸 GATE_DEPTH=10 > ANIMAL_R=8 → 动物中心必然先进门区、判定先于家墙碰撞触发;
-// 向墙内嵌 6px:软分离偶尔把动物横着挤到墙面线内侧时仍在门区豁免范围里,不会被墙推着乱跳。
-const rect_t HOUSE_GATE = {
-    FENCE_THICK + HOUSE_W - 6, PLAY_H / 2 - GATE_W / 2.0f,
-    FENCE_THICK + HOUSE_W + GATE_DEPTH, PLAY_H / 2 + GATE_W / 2.0f,
-};
-const rect_t POND_GATE = {
-    PLAY_W - FENCE_THICK - POND_W - GATE_DEPTH, PLAY_H / 2 - GATE_W / 2.0f,
-    PLAY_W - FENCE_THICK - POND_W + 6, PLAY_H / 2 + GATE_W / 2.0f,
-};
+// 图纸 homes[] 的下标必须与 animal_kind_t 一致(layout.h 不 include flock.h,靠这条卡住)
+_Static_assert((int)ANIMAL_CHICK == LAYOUT_HOME_CHICK && (int)ANIMAL_DUCK == LAYOUT_HOME_DUCK,
+               "layout.h 的 LAYOUT_HOME_* 与 flock.h 的 animal_kind_t 对不上");
 
-const circ_t CORNER_BUSH[4] = {
-    { BUSH_INSET,            BUSH_INSET,            CORNER_BUSH_R },
-    { PLAY_W - BUSH_INSET,   BUSH_INSET,            CORNER_BUSH_R },
-    { BUSH_INSET,            PLAY_H - BUSH_INSET,   CORNER_BUSH_R },
-    { PLAY_W - BUSH_INSET,   PLAY_H - BUSH_INSET,   CORNER_BUSH_R },
-};
-
-// ── 探头小脸 / 派对对象句柄 ───────────────────────────────────────────
+// ── 探头小脸 / 派对对象句柄(每次 scene_redraw 重建,句柄跟着刷新)────────
 #define PEEK_MAX      5     // 每家最多 5 张探头小脸(5 鸡 + 5 鸭)
 #define PEEK_SZ       7     // 小脸直径(px)
-#define EYE_SIGN_COL  0x3A3A38   // 家门口脸招牌的眼睛色(与动物眼睛同色)
+#define EYE_SIGN_COL  0x3A3A38   // 家门口脸招牌/探头小脸的眼睛色(与动物眼睛同色)
 
 static lv_obj_t *s_peek[2][PEEK_MAX];       // [kind][i],hidden 预建,归家时显示
 static lv_obj_t *s_house_body, *s_house_roof, *s_house_base;
 static lv_obj_t *s_pond_water, *s_pond_sheen, *s_pond_rim_t, *s_pond_rim_b;
+static lv_obj_t *s_layout;   // 容器:图纸相关静态件(家×2+灌木×4+探头小脸),整体清空重画
 
 // ── 绘制小工具(仿 tilt_maze render.c 的 make_box)────────────────────
 static lv_obj_t *box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius)
@@ -68,6 +43,119 @@ static lv_obj_t *circle(lv_obj_t *parent, int cx, int cy, int r, uint32_t color)
     return box(parent, cx - r, cy - r, r * 2, r * 2, color, LV_RADIUS_CIRCLE);
 }
 
+// 招牌脸(仿 tools/preview.py draw_face:圆脸 + 两眼 + 喙,按半径 r 等比缩放,通用于
+// 任意 SIGN_R,不再用 φ20 时代手调的固定像素偏移——SIGN_R 10→12 这批就是靠这点通用)。
+static void draw_face_c(lv_obj_t *parent, float cx, float cy, float r, uint32_t body, uint32_t beak)
+{
+    circle(parent, (int)cx, (int)cy, (int)r, body);
+    float e = fmaxf(1.0f, r * 0.20f);
+    float ex0 = cx - r * 0.42f - e, ex1 = cx - r * 0.42f + e;
+    float ey0 = cy - r * 0.30f - e, ey1 = cy - r * 0.30f + e;
+    box(parent, (int)ex0, (int)ey0, (int)(ex1 - ex0), (int)(ey1 - ey0), EYE_SIGN_COL, (int)e);
+    float fx0 = cx + r * 0.42f - e, fx1 = cx + r * 0.42f + e;
+    box(parent, (int)fx0, (int)ey0, (int)(fx1 - fx0), (int)(ey1 - ey0), EYE_SIGN_COL, (int)e);
+    float bx0 = cx - r * 0.28f, bx1 = cx + r * 0.28f;
+    float by0 = cy + r * 0.18f, by1 = cy + r * 0.58f;
+    box(parent, (int)bx0, (int)by0, (int)(bx1 - bx0), (int)(by1 - by0), beak, (int)(r * 0.15f));
+}
+
+// ── 一个家的完整绘制(鸡窝/池塘逐件镜像同构,只按 face 镜像 x 方向,§2 加强批)────
+static void draw_home_layer(animal_kind_t kind, const home_spec_t *hs, rect_t rect, rect_t gate)
+{
+    int x0 = (int)rect.x0, y0 = (int)rect.y0, x1 = (int)rect.x1, y1 = (int)rect.y1;
+    int hw = x1 - x0, hh = y1 - y0;
+    int out = (hs->face == HOME_FACE_RIGHT) ? 1 : -1;   // 场地方向
+    float door_x = hs->anchor_x;
+    int gy0 = (int)gate.y0, gy1 = (int)gate.y1;
+
+    uint32_t body_c, band_t_c, band_b_c, frame_c, hole_c, bar_c, sign_body_c, sign_beak_c;
+    if (kind == ANIMAL_CHICK) {
+        body_c = 0xE8C79A; band_t_c = 0xD9483A; band_b_c = 0xB4855A;
+        frame_c = 0xFFF1CE; hole_c = 0x452F1D; bar_c = 0x8A6238;
+        sign_body_c = 0xF7C233; sign_beak_c = 0xF0A030;
+    } else {
+        body_c = 0x5FB6DC; band_t_c = 0xD9BC7E; band_b_c = 0xD9BC7E;
+        frame_c = 0xEADBA8; hole_c = 0x1F3340; bar_c = 0xA98953;
+        sign_body_c = 0xE8F0F5; sign_beak_c = 0xF2C14E;   // 冷白(2026-08-10 美术批,见交付说明)
+    }
+
+    lv_obj_t *body   = box(s_layout, x0, y0, hw, hh, body_c, 6);
+    lv_obj_t *band_t = box(s_layout, x0 - 2, y0, hw + 4, (int)BAND, band_t_c, 6);
+    lv_obj_t *band_b = box(s_layout, x0 - 2, y1 - (int)BAND, hw + 4, (int)BAND, band_b_c, 6);
+    if (kind == ANIMAL_CHICK) { s_house_roof = band_t; s_house_body = body; s_house_base = band_b; }
+    else                      { s_pond_rim_t = band_t; s_pond_water = body; s_pond_rim_b = band_b; }
+
+    if (kind == ANIMAL_DUCK) {
+        // 水面高光(避开门框/招牌):🔴 2026-08-10 修正镜像 —— 旧公式固定按"门在 x0 侧"
+        // 写(只对 face=LEFT 成立);图纸 B 鸭门 face=RIGHT,不镜像会被门框盖掉大半
+        // (实测只剩 ~7px 可见,见交付说明)。镜像后恒定"22px 让开门、6px 让开内墙"。
+        float p1 = door_x - out * 22.0f;
+        float p2 = door_x - out * ((float)hw - 6.0f);
+        int sx0 = (int)fminf(p1, p2), sx1 = (int)fmaxf(p1, p2);
+        s_pond_sheen = box(s_layout, sx0, y0 + 17, sx1 - sx0, 6, 0xC5ECF7, 999);
+    }
+
+    // 门三件套:门垫(伸进场地)/ 框(嵌墙 DOOR_FRAME_D=17)/ 洞(嵌墙 13),按 out 镜像
+    float m_a = door_x, m_b = door_x + out * (GATE_DEPTH + 4.0f);
+    int mx0 = (int)fminf(m_a, m_b), mx1 = (int)fmaxf(m_a, m_b);
+    box(s_layout, mx0, gy0 + 2, mx1 - mx0, (gy1 - 2) - (gy0 + 2), 0xE6CC92, 4);
+
+    float f_a = door_x, f_b = door_x - out * DOOR_FRAME_D;
+    int fx0 = (int)fminf(f_a, f_b), fx1 = (int)fmaxf(f_a, f_b);
+    box(s_layout, fx0, gy0 - 2, fx1 - fx0, (gy1 + 2) - (gy0 - 2), frame_c, 8);
+
+    float h_a = door_x, h_b = door_x - out * 13.0f;
+    int hx0 = (int)fminf(h_a, h_b), hx1 = (int)fmaxf(h_a, h_b);
+    box(s_layout, hx0, gy0, hx1 - hx0, gy1 - gy0, hole_c, 8);
+
+    // 天窗条 / 水草条(探头小脸从这儿冒):恒在沿边轴的"顶"侧,与 face 无关(面朝左右
+    // 只改变进深轴朝向,不改变沿边轴的上下)。
+    box(s_layout, x0 + 2, y0 + 2, hw - 4, 9, bar_c, 3);
+    uint32_t peek_col = (kind == ANIMAL_CHICK) ? 0xF7C233 : 0xE8F0F5;
+    for (int i = 0; i < PEEK_MAX; i++) {
+        s_peek[kind][i] = circle(s_layout, x0 + 7 + i * 9, y0 + 6, PEEK_SZ / 2, peek_col);
+        lv_obj_add_flag(s_peek[kind][i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // 招牌脸:门面的另一侧(门占了朝场地那面墙),垂直对齐门洞中线;46 进深下 SIGN_R=12
+    // 是硬上限(见 scene.h 注释),这里 hw 恒等于 HOUSE_W/POND_W=46,不随图纸变。
+    float sx = door_x - out * ((float)hw - SIGN_R - 5.0f);
+    draw_face_c(s_layout, sx, hs->cy, SIGN_R, sign_body_c, sign_beak_c);
+}
+
+// 整体重画图纸相关静态件(家×2 + 灌木×4 + 探头小脸),仅在 scene_apply_blueprint 内调,
+// 合 §6.1"整屏重绘只允许进关/换场景"。
+static void scene_redraw(const blueprint_t *bp)
+{
+    bsp_display_lock(0);
+    lv_obj_clean(s_layout);   // LVGL 删子对象时自动清掉挂在它们身上的 lv_anim,无需手动 delete
+
+    draw_home_layer(ANIMAL_CHICK, &bp->homes[ANIMAL_CHICK], HOUSE_RECT, HOUSE_GATE);
+    draw_home_layer(ANIMAL_DUCK,  &bp->homes[ANIMAL_DUCK],  POND_RECT,  POND_GATE);
+
+    // 四角灌木:深绿主体 + 偏中心一颗浅绿高光(2026-08-10 降对比,碰撞半径不动只降视觉权重)
+    for (int i = 0; i < 4; i++) {
+        circle(s_layout, (int)CORNER_BUSH[i].x, (int)CORNER_BUSH[i].y, (int)CORNER_BUSH[i].r, 0x7CB86F);
+    }
+    for (int i = 0; i < 4; i++) {
+        int hlx = (int)CORNER_BUSH[i].x + (CORNER_BUSH[i].x < PLAY_W / 2 ? 8 : -14);
+        int hly = (int)CORNER_BUSH[i].y + (CORNER_BUSH[i].y < PLAY_H / 2 ? 8 : -14);
+        circle(s_layout, hlx, hly, 12, 0x8EC980);
+    }
+
+    bsp_display_unlock();
+}
+
+int scene_blueprint_count(void)   { return layout_count(); }
+int scene_current_blueprint(void) { return layout_current(); }
+
+void scene_apply_blueprint(int idx)
+{
+    const blueprint_t *bp = layout_get(layout_apply(idx));   // 校验+提交几何(失败回退 A)
+    scene_redraw(bp);
+    ESP_LOGI(TAG, "图纸切换 → [%s]", bp->name);
+}
+
 // ── 动画回调(仿 tilt_maze render.c)─────────────────────────────────
 static void cb_ty(void *o, int32_t v)  { lv_obj_set_style_translate_y((lv_obj_t *)o, v, 0); }
 static void cb_y(void *o, int32_t v)   { lv_obj_set_y((lv_obj_t *)o, v); }
@@ -80,78 +168,32 @@ void scene_init(void)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 栅栏木色打底铺满整屏,再在内侧画一块缩进 FENCE_THICK 的草地——
-    // 剩下露出来的外圈木色边框就是"四周木栅栏",省掉画四条独立边框的麻烦。
+    // 栅栏木色打底铺满整屏,再在内侧画一块缩进 FENCE_THICK 的草地——剩下露出来的外圈
+    // 木色边框就是"四周木栅栏",省掉画四条独立边框的麻烦。图纸无关,恒定,只画一次
+    // (PLAY_BOUNDS/FENCE_THICK 不随图纸变,不用跟着 scene_apply_blueprint 重画)。
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x8A5A3C), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     box(scr, (int)FENCE_THICK, (int)FENCE_THICK,
         (int)(PLAY_W - 2 * FENCE_THICK), (int)(PLAY_H - 2 * FENCE_THICK), 0x9ED97A, 6);
 
-    // 鸡窝(左边缘中段)—— 2026-07-12 实机反馈"家不够明显"加强批:
-    // 木屋身 + 红屋顶 + 大拱门(奶油门框 + 深棕门洞,跨骑 HOUSE_GATE 全高,"大黑洞"
-    // 一眼可读)+ 门口沙色门垫(伸进场地,与池塘浅滩对仗的"从这儿进"地面邀请)+
-    // 屋身大号小鸡脸招牌(不识字 → 语义靠住户的脸,§2)。与 tilt_maze 配色刻意区分。
-    int hx0 = (int)HOUSE_RECT.x0, hy0 = (int)HOUSE_RECT.y0;
-    int hw  = (int)(HOUSE_RECT.x1 - HOUSE_RECT.x0), hh = (int)(HOUSE_RECT.y1 - HOUSE_RECT.y0);
-    // 立面对称三段式(实机反馈"门上下两边不一致"修正):屋顶带 13 + 墙身 44(=GATE_W,
-    // 与 HOUSE_GATE 严格同高)+ 底座带 13 = HOUSE_H 70。门洞占满墙身段、门框上下各只出
-    // 2px 压在屋顶/底座上 —— 上下肩膀天然等宽,门再也不"戳屋顶、剩下摆"。
-    s_house_body = box(scr, hx0, hy0, hw, hh, 0xE8C79A, 6);
-    s_house_roof = box(scr, hx0 - 2, hy0, hw + 4, 13, 0xD9483A, 6);
-    s_house_base = box(scr, hx0 - 2, hy0 + hh - 13, hw + 4, 13, 0xB4855A, 6);
-    box(scr, (int)HOUSE_RECT.x1, (int)HOUSE_GATE.y0 + 2,
-        (int)GATE_DEPTH + 4, (int)GATE_W - 4, 0xE6CC92, 4);                       // 门垫
-    box(scr, (int)HOUSE_RECT.x1 - 17, (int)HOUSE_GATE.y0 - 2, 17, (int)GATE_W + 4, 0xFFF1CE, 8);  // 门框
-    box(scr, (int)HOUSE_RECT.x1 - 13, (int)HOUSE_GATE.y0, 13, (int)GATE_W, 0x452F1D, 8);          // 门洞
-    // 小鸡脸招牌(与场上小鸡同款配色,眼/喙做 sign 的子对象),垂直对齐门洞中线
-    lv_obj_t *sign = circle(scr, hx0 + 15, (int)(PLAY_H / 2), 10, 0xF7C233);
-    box(sign, 5, 6, 3, 3, EYE_SIGN_COL, LV_RADIUS_CIRCLE);
-    box(sign, 12, 6, 3, 3, EYE_SIGN_COL, LV_RADIUS_CIRCLE);
-    box(sign, 7, 12, 6, 4, 0xF0A030, 2);
-
-    // 池塘(右边缘中段)—— 与鸡窝**镜像同构**(实机反馈"两边不一致"二次修正):
-    // 同一套三段式(沙沿带 13 + 水面 44 = POND_GATE 全高 + 沙沿带 13)、同一套入口
-    // 三件套(门垫 + 框 + 深色洞口),逐件对应鸡窝的(门垫 + 奶油木框 + 深棕门洞),
-    // 只换材质:木屋 → 沙沿水塘。孩子看到的是"左右两栋对称的家",只是住户/颜色不同。
-    int px0 = (int)POND_RECT.x0, py0 = (int)POND_RECT.y0;
-    int pw  = (int)(POND_RECT.x1 - POND_RECT.x0), ph = (int)(POND_RECT.y1 - POND_RECT.y0);
-    s_pond_water = box(scr, px0, py0, pw, ph, 0x5FB6DC, 6);                        // 全高水体
-    s_pond_rim_t = box(scr, px0 - 2, py0, pw + 4, 13, 0xD9BC7E, 6);                // 上沙沿带
-    s_pond_rim_b = box(scr, px0 - 2, py0 + ph - 13, pw + 4, 13, 0xD9BC7E, 6);      // 下沙沿带
-    box(scr, (int)(POND_RECT.x0 - GATE_DEPTH - 4), (int)POND_GATE.y0 + 2,
-        (int)GATE_DEPTH + 4, (int)GATE_W - 4, 0xE6CC92, 4);                        // 门垫(同色镜像)
-    box(scr, px0, (int)POND_GATE.y0 - 2, 17, (int)GATE_W + 4, 0xEADBA8, 8);        // 沙框
-    box(scr, px0, (int)POND_GATE.y0, 13, (int)GATE_W, 0x2F6E92, 8);                // 深水缺口
-    s_pond_sheen = box(scr, px0 + 22, py0 + 17, pw - 28, 6, 0xC5ECF7, 999);        // 水面高光(避开框/招牌)
-    // 小鸭脸招牌:镜像鸡窝招牌(右侧居中,垂直对齐缺口中线)
-    lv_obj_t *dsign = circle(scr, px0 + pw - 15, (int)(PLAY_H / 2), 10, 0xF2F2ED);
-    box(dsign, 5, 6, 3, 3, EYE_SIGN_COL, LV_RADIUS_CIRCLE);
-    box(dsign, 12, 6, 3, 3, EYE_SIGN_COL, LV_RADIUS_CIRCLE);
-    box(dsign, 7, 12, 6, 4, 0xF2C14E, 2);
-
-    // 四角灌木:深绿主体 + 偏中心一颗浅绿高光,烘进静态层(付一次,不每帧算)。
-    for (int i = 0; i < 4; i++) {
-        circle(scr, (int)CORNER_BUSH[i].x, (int)CORNER_BUSH[i].y, (int)CORNER_BUSH[i].r, 0x4E8F4A);
-    }
-    for (int i = 0; i < 4; i++) {
-        int hlx = (int)CORNER_BUSH[i].x + (CORNER_BUSH[i].x < PLAY_W / 2 ? 8 : -14);
-        int hly = (int)CORNER_BUSH[i].y + (CORNER_BUSH[i].y < PLAY_H / 2 ? 8 : -14);
-        circle(scr, hlx, hly, 12, 0x6FB86A);
-    }
-
-    // 探头小脸(SPEC §5.3 计数显示):预建 hidden,归家时显示前 n 个,改一次不逐帧。
-    // 两家镜像同位:各自顶带里一条深色横条(鸡窝天窗 / 池塘水草条),小脑袋从条里
-    // 冒出来。每家 5 个 7px 圆一排,间距 9px,y 完全一致。
-    box(scr, hx0 + 2, hy0 + 2, hw - 4, 9, 0x8A6238, 3);     // 鸡窝天窗条(屋顶带内)
-    box(scr, px0 + 2, py0 + 2, pw - 4, 9, 0xA98953, 3);     // 池塘水草条(沙沿带内,镜像)
-    for (int i = 0; i < PEEK_MAX; i++) {
-        s_peek[0][i] = circle(scr, hx0 + 7 + i * 9, hy0 + 6, PEEK_SZ / 2, 0xF7C233);    // 鸡头
-        lv_obj_add_flag(s_peek[0][i], LV_OBJ_FLAG_HIDDEN);
-        s_peek[1][i] = circle(scr, px0 + 7 + i * 9, py0 + 6, PEEK_SZ / 2, 0xF2F2ED);    // 鸭头
-        lv_obj_add_flag(s_peek[1][i], LV_OBJ_FLAG_HIDDEN);
-    }
+    // 图纸相关静态件的容器:透明、铺满屏,后续每次图纸切换只 clean 它、不碰上面的
+    // 栅栏/草地(它是 scr 的子对象,建在栅栏之后、动物精灵[critters_init]之前,
+    // z-order 天然夹在两者中间,不受 lv_obj_clean(s_layout) 反复调用影响)。
+    s_layout = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_layout);
+    lv_obj_set_size(s_layout, (int)PLAY_W, (int)PLAY_H);
+    lv_obj_set_pos(s_layout, 0, 0);
+    lv_obj_set_style_bg_opa(s_layout, LV_OPA_TRANSP, 0);
+    lv_obj_remove_flag(s_layout, LV_OBJ_FLAG_SCROLLABLE);
 
     bsp_display_unlock();
+
+    // 🔴 开机把三张图纸全跑一遍校验并打一行日志。校验器一旦自己写错(2026-08-13 就
+    // 发生过:flood fill 填表循环提前退出 → 三张全判失败 → 每次都静默回退图纸 A),
+    // 屏幕上的表现与"设计如此"一模一样,只有这行日志能当场戳穿。
+    layout_selftest();
+
+    scene_apply_blueprint(0);   // 开机恒图纸 A(基准图纸);之后每轮派对换下一张
 }
 
 void scene_set_home_count(int kind, int n)

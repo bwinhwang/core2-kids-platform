@@ -102,7 +102,9 @@ static void dispatch_hello(void)
 
 static void dispatch_shake(void)
 {
-    // 摇一摇彩蛋(SPEC §6):叽嘎混声合唱 + 中震 + 灯带彩虹一闪;不改进度
+    // 摇一摇(SPEC §6,2026-08-10 功能键批):叽嘎混声合唱 + 中震 + 灯带彩虹一闪。
+    // 冲散门口堆积的随机冲量已由 game_state 在触发瞬间调 flock_shake_impulse() 做完,
+    // 本函数只管四通道里的音/震/灯(屏幕的小跳同样由 game_state 直调 critters_hop_all)。
     audio_fx_play_notes((audio_note_t[]){
         { 1600, 45, 60 }, { 420, 60, 60 }, { 1450, 45, 55 }, { 370, 70, 60 },
     }, 4);

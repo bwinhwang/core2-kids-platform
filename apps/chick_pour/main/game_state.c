@@ -28,6 +28,9 @@ static int        s_total;                         // 已归家总数(五声音�
 static int        s_party_frames;                  // PARTY 剩余帧数
 static TickType_t s_last_bounce[ANIMAL_COUNT];     // 每只的弹出反馈节流时戳(§5.2)
 
+// 当前生效图纸下标(SPEC §13:后院图纸批)。开机 = 图纸 A,每轮派对后依次 +1。
+static int s_bp_idx;
+
 // 摇一摇彩蛋(SPEC §3:busy_knobs 泄漏计数法原样搬,SHAKE_* 三常量见 tuning.h)
 static float s_prev_acc[3];
 static bool  s_prev_acc_valid;
@@ -99,12 +102,26 @@ static void play_tick(const imu_accel_t *acc)
     critters_update(s_animals, ANIMAL_COUNT);
 }
 
+// ── 下一张图纸:依次轮换(2026-08-10 用户拍板"最简单的就是依次选中")────────
+// 3 张图纸不值得上洗牌袋(那是 tilt_maze 16 关的做法):轮换代码更短、行为可预期、
+// 保证每轮都换,也不用打"不背靠背重复"的补丁。
+static int next_blueprint(void)
+{
+    int n = scene_blueprint_count();
+    if (n < 1) n = 1;
+    return (s_bp_idx + 1) % n;
+}
+
 // ── PARTY 每帧:纯倒计时(视觉/音/震/灯已交给 feedback + lv_anim 异步演)──
 static void party_tick(void)
 {
     if (--s_party_frames > 0) return;
 
-    // 重散一批(§5.4 约束随机 + 网格兜底)→ 精灵复位 → 计数/小脸清零 → 回 PLAY
+    // 换下一张图纸(§13,依次轮换)→ 清掉旧静态层重画(scene_apply_blueprint,§6.1 允许的
+    // 整屏重绘时机)→ 重散一批(§5.4,读的是刚提交的新图纸几何)→ 精灵复位 →
+    // 计数/小脸清零 → 回 PLAY。顺序不能乱:必须先切图纸,flock_scatter 才会按新图纸摆点。
+    s_bp_idx = next_blueprint();
+    scene_apply_blueprint(s_bp_idx);
     flock_scatter(s_animals, ANIMAL_COUNT);
     critters_respawn(s_animals, ANIMAL_COUNT);
     s_home_count[0] = s_home_count[1] = 0;
@@ -112,7 +129,7 @@ static void party_tick(void)
     scene_set_home_count(0, 0);
     scene_set_home_count(1, 0);
     s_state = ST_PLAY;
-    ESP_LOGI(TAG, "重散一批,新一轮开始");
+    ESP_LOGI(TAG, "重散一批,新一轮开始(图纸 #%d)", s_bp_idx);
 }
 
 // ── 摇一摇彩蛋(busy_knobs 泄漏计数法,SPEC §3;仅 PLAY 且清醒时触发)────
@@ -126,8 +143,12 @@ static void shake_check(const imu_accel_t *acc, bool have, core2_sleep_stage_t s
             if (s_shake_hits < SHAKE_NEEDED) s_shake_hits++;
             if (s_shake_hits >= SHAKE_NEEDED && s_shake_cooldown == 0 &&
                 stage == CORE2_SLEEP_AWAKE && s_state == ST_PLAY) {
+                // 2026-08-10 摇一摇从彩蛋升级为功能键(SPEC §3):随机方向冲量先冲散
+                // 门口堆积,视觉/音效反馈紧随其后。进度计数不受影响(归家还是得靠玩家
+                // 自己倾斜对准家门,冲量方向是随机的,不是"游戏帮忙瞄准")。
+                flock_shake_impulse(s_animals, ANIMAL_COUNT);
                 critters_hop_all();      // 在场动物全体原地小跳
-                feedback_emit_shake();   // 叽嘎合唱 + 中震 + 彩虹一闪;不改进度
+                feedback_emit_shake();   // 叽嘎合唱 + 中震 + 彩虹一闪
                 s_shake_cooldown = SHAKE_COOLDOWN_MS / PHYS_PERIOD_MS;
                 s_shake_hits     = 0;
                 ESP_LOGI(TAG, "摇一摇彩蛋!");
@@ -177,6 +198,10 @@ static void game_task(void *arg)
 void game_state_start(void)
 {
     flock_init(s_animals, ANIMAL_COUNT);
+    // flock_init 的开局摆位是写死给图纸 A 的预置网格(两行、绕 cy=120 手调);再走一次
+    // 图纸感知的约束布点,开局才不会有动物生在门判定区里(开机虽恒为 A,但这条不该
+    // 依赖"开机是哪张图纸",tools/verify_host.sh 三张图纸各跑 40 个种子验的就是它)。
+    flock_scatter(s_animals, ANIMAL_COUNT);
     critters_init(s_animals, ANIMAL_COUNT);
 
     s_state = ST_ATTRACT;
@@ -187,10 +212,18 @@ void game_state_start(void)
     s_prev_acc_valid = false;
     s_shake_hits     = 0;
     s_shake_cooldown = 0;
+    s_bp_idx = scene_current_blueprint();   // 跟 scene_init 应用的那张对齐(含校验回退)
 
     core2_sleep_init(&s_sleep, NULL);   // NULL = 实机定案默认值(SPEC §10:全托管,不自定义)
 
-    xTaskCreate(game_task, "game", 4096, NULL, 5, NULL);
+    // 🔴 栈 8192(原 4096):2026-08-10 图纸批起,party_tick() 会在本任务里直调
+    // scene_apply_blueprint() → 一整批 lv_obj_clean/lv_obj_create。LVGL 在 LV_OS_NONE 下
+    // 跑在**调用者栈**上(根 CLAUDE.md §11),同一条代码路径在 scene_init() 里是跑在
+    // app_main 的 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192 上的 —— 放到 4096 任务里等于把它
+    // 减半。栈溢出的表现是 canary → panic → 立刻重启,而本工程重启即回 launcher,
+    // 会被误判成"玩着玩着游戏自己退了"(§11 已有 screenshot 在 4096 栈里一按必重启的前科)。
+    // 4KB 内部 RAM 换掉一整类只在实机上才暴露、且每次复现都要人工插线的故障。
+    xTaskCreate(game_task, "game", 8192, NULL, 5, NULL);
     ESP_LOGI(TAG, "ATTRACT:%d 只动物睡着入场,倾斜唤醒(完整状态机:睡醒/归家/派对/重散/彩蛋)",
              ANIMAL_COUNT);
 }

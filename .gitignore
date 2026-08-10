@@ -14,6 +14,11 @@ __pycache__/
 # 只是排查现场的一次性证据,别进版本库;确实要留档的截图放 docs/ 下并在文档里引用。
 screenshot_*.png
 
+# 各 app tools/preview.py 的离屏效果图(不带参数时落在当前目录)。同样是可再生的
+# 一次性产物,要留档就放 docs/ 下并在文档里引用。
+bp_*.png
+ui_wide.png
+
 # 编辑器/系统
 .vscode/
 .DS_Store

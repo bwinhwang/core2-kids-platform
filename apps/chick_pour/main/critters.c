@@ -10,8 +10,9 @@
 // 圆身 + 一块偏移的浅色"绒毛高光"两色过渡(同星星的 body→core 混合思路),
 // init 时算一次,之后当普通图片贴,§6.4"烘好再贴、不每帧算 alpha"。
 // 字节序 B,G,R,A(lv_color32_t,与 tilt_maze render.c 的星星精灵一致)。
-#define BODY_IMG_W   20
-#define BODY_IMG_H   20
+// 2026-08-10 美术批:20→26(随 ANIMAL_R 8→11 同步放大,画布留白比例与原版接近)。
+#define BODY_IMG_W   26
+#define BODY_IMG_H   26
 
 static uint8_t        s_body_px[ANIMAL_KINDS][BODY_IMG_W * BODY_IMG_H * 4];
 static lv_image_dsc_t s_body_dsc[ANIMAL_KINDS];
@@ -26,9 +27,10 @@ static inline bool in_circle(float x, float y, float cx, float cy, float r)
 static void bake_body_sprite(int kind, uint32_t body_hex, uint32_t sheen_hex)
 {
     const float cx = BODY_IMG_W / 2.0f;
-    const float cy = BODY_IMG_H / 2.0f + 0.4f;     // 圆身重心略下沉,视觉更"蹲实"
-    const float R  = ANIMAL_R + 0.6f;              // 略大于物理半径,饱满一点(仍在 20px 画布内)
-    const float sx = cx - 2.2f, sy = cy - 3.0f;    // 高光偏左上,像被光照到的绒毛
+    const float cy = BODY_IMG_H / 2.0f + 0.5f;     // 圆身重心略下沉,视觉更"蹲实"(原 +0.4,
+                                                    // 按画布比例 26/20 重算)
+    const float R  = ANIMAL_R + 0.6f;              // 略大于物理半径,饱满一点(仍在画布内)
+    const float sx = cx - 2.9f, sy = cy - 3.9f;    // 高光偏左上(原 -2.2/-3.0,按画布比例重算)
     const float sr = R * 0.42f;
 
     const uint8_t body[3]  = { (uint8_t)(body_hex),  (uint8_t)(body_hex >> 8),  (uint8_t)(body_hex >> 16) };
@@ -68,16 +70,18 @@ static void bake_body_sprite(int kind, uint32_t body_hex, uint32_t sheen_hex)
 }
 
 // ── 装扮件尺寸(眼/喙,子对象叠,仿 chain_lab PRIZE_LOOK 的装扮思路)───────────
-#define EYE_SZ    2
-#define EYE_Y     7
-#define EYE_L_X   6
-#define EYE_R_X   12
+// 2026-08-10 美术批:随 BODY_IMG_W/H 20→26 按比例(×1.3)重算,喙宽/位置顺带与两眼
+// 中线对齐(EYE_L_X + EYE_R_X + EYE_SZ)/2 = 13.5 = BEAK_X + BEAK_W/2)。
+#define EYE_SZ    3     // 原 2
+#define EYE_Y     9     // 原 7
+#define EYE_L_X   8     // 原 6
+#define EYE_R_X   16    // 原 12
 #define EYE_COL   0x3A3A38
 
-#define BEAK_W    5
-#define BEAK_H    3
-#define BEAK_X    8
-#define BEAK_Y    11
+#define BEAK_W    7     // 原 5
+#define BEAK_H    4     // 原 3
+#define BEAK_X    10    // 原 8
+#define BEAK_Y    14    // 原 11
 
 static const uint32_t BEAK_COLOR[ANIMAL_KINDS] = { 0xF0A030, 0xF2C14E };   // 鸡喙橙 / 鸭喙偏黄橙
 
@@ -158,7 +162,9 @@ void critters_init(const animal_t animals[], int n)
     if (n > ANIMAL_COUNT) n = ANIMAL_COUNT;
 
     bake_body_sprite(ANIMAL_CHICK, 0xF7C233, 0xFFF0AE);   // 黄小鸡:暖黄 + 浅黄绒毛高光
-    bake_body_sprite(ANIMAL_DUCK,  0xF2F2ED, 0xFFFFFF);   // 白小鸭:米白 + 纯白高光
+    // 白小鸭:冷白 + 纯白高光(2026-08-10 美术批,原 0xF2F2ED 与奶油门框/沙框明度几乎
+    // 一样,小鸭飘到自己家门口会融进背景;改冷白同时拉开色相、接上池塘蓝色系)
+    bake_body_sprite(ANIMAL_DUCK,  0xE8F0F5, 0xFFFFFF);
 
     bsp_display_lock(0);
     lv_obj_t *scr = lv_screen_active();

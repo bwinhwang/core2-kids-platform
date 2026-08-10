@@ -17,7 +17,7 @@ DEEP 省的**全是外设电**:屏、灯带、M-Bus 5V。主控自始至终 160M
 (`CONFIG_PM_ENABLE` 没开,没有动态调频/tickless/light sleep),LDO2(屏逻辑电)、
 PSRAM、NS4168 功放也都一直供着。所以 DEEP **不是省到底的状态,只是省得最多的状态**
 ——停在那儿,500mAh 电芯会一路耗到放空(还每次都是深放电)。主控侧那几条为什么还没做、
-各自代价多大,见 `docs/ROADMAP.md` §7。
+各自代价多大,见 `docs/ROADMAP.md` §8。
 
 `deep_shutdown_ms`(默认 10min)是没上 light sleep 的前提下**唯一能把待机功耗归零**的
 手段。关机走 `core2_power_shutdown()`(AXP192 `0x32` bit7),之后按电源键重新开机。

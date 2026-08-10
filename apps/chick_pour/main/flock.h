@@ -40,5 +40,15 @@ void flock_step(animal_t animals[], int n, const imu_accel_t *accel_raw, float d
  *         ≥SCATTER_GATE_CLEAR、避开灌木/两家、栅栏内),拒绝采样 SCATTER_MAX_TRIES 次
  *         不满足退化为预置网格(永不失败);布完跑校验断言,失败也走网格。
  *         全部动物复活(active=true)、速度清零;增益抖动保留(init 时定死)。
+ *         🔴 须在调用方已切好本轮图纸(scene_apply_blueprint)之后调 —— 本函数读取的
+ *         HOUSE_RECT/POND_RECT/HOUSE_GATE/POND_GATE/CORNER_BUSH 是当前图纸的值。
  *  @return true = 约束随机成功;false = 走了网格兜底(仅日志/调参参考,行为都正确)。 */
 bool flock_scatter(animal_t animals[], int n);
+
+/** @brief 摇一摇冲量(2026-08-10 摇一摇从彩蛋升级为功能键,SPEC §3/§11③):给每只在场
+ *         (active)动物一个小随机方向的速度冲量,把挤在门口的堆冲散——门口堆积是"错种类
+ *         动物悬停堵住对的动物"的挫败场景(图纸 B 两个门同向,尤其容易撞上)。
+ *         🔴 方向是随机的,不指向任何家:解卡靠玩家后续倾斜,不是游戏帮玩家瞄准
+ *         (ROADMAP §5 红线,禁止"仅剩 1 只自动向家漂移"那类隐形辅助,fish_pond 教训)。
+ *         冲量大小 SHAKE_IMPULSE_SPEED(tuning.h,★待实机标定)。 */
+void flock_shake_impulse(animal_t animals[], int n);
