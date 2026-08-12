@@ -37,3 +37,6 @@ void app_main(void) {
   必须 `esptool.py write_flash <ota_x 偏移> build/<app>.bin`(见 `tools/flash_map.md`)。
 - `app_slot_present()` 只读 app 描述符(轻量,适合选择页);完整镜像校验发生在
   `app_slot_launch()` 里(空槽/坏镜像返回错误,launcher 应温柔提示而非重启)。
+- **从仓库删掉一个 app ≠ 卡带架上消失**——flash 上的镜像还在,`app_slot_present()` 照样返回 true。
+  下架要擦设备:`tools/flash_one.sh --erase <app名|ota_N>`。描述符在偏移 `0x20`,擦头 4KB 即判空,
+  不必擦满 2MB(见 `tools/flash_map.md`)。

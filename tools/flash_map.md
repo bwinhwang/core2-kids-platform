@@ -14,10 +14,32 @@
 | ota_2 | `0x590000` | chick_pour 小鸡回窝(IMU;原 peekaboo 槽,2026-07-12 回收) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x590000 apps/chick_pour/build/chick_pour.bin` |
 | ota_3 | `0x790000` | clock_turn 转转钟(教育卡带,Chain Encoder @PORT.C;2026-08-06 立项) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x790000 apps/clock_turn/build/clock_turn.bin` |
 | ota_4 | `0x990000` | chain_lab Chain 验证台(Encoder/Joystick @PORT.C) | `python -m esptool --chip esp32 -p <PORT> write-flash 0x990000 apps/chain_lab/build/chain_lab.bin` |
-| ota_5 | `0xB90000` | (空,2026-08-03 fish_pond 放弃删除回收,见 `docs/ROADMAP.md` §5) | — |
+| ota_5 | `0xB90000` | (空闲,2026-08-03 fish_pond 放弃删除回收,见 `docs/ROADMAP.md` §5) | — |
 | storage | `0xD90000` | 共享素材区(spiffs,~2.4M) | 将来放烘焙精灵图/音效 |
 
 `tools/flash_one.sh <app名> [PORT]` 可直接打印/执行对应命令(WSL 内只打印,拿到 WSL 外执行)。
+
+> ⚠️ **"空闲"说的是仓库,不是设备**:从仓库删掉一个 app **不会**动 flash 上已烧的镜像,
+> launcher 照样把它画成一张能点的卡带。要让卡带架上真消失,得按下面置空槽位。
+
+## 置空一个槽位(卡带下架)
+
+```bash
+tools/flash_one.sh --erase ota_5 [PORT]        # 或写 app 名;等价于 ↓
+python -m esptool --chip esp32 -p COM3 erase-region 0xB90000 0x1000
+```
+
+**擦头 4KB 就够,~0.1 秒**:launcher 判空槽走 `app_slot_present()` →
+`esp_ota_get_partition_description()`,它只读分区偏移 `0x20` 处的 `esp_app_desc_t`
+校验 `magic_word`;头扇区一没,整槽即判"空"。残留的半截镜像也点不进去——
+`app_slot_launch()` 的 `esp_ota_set_boot_partition()` 自带镜像校验,空槽/坏镜像会被挡下。
+擦完重新上电即生效。
+
+真要抹干净整槽(2MB,十几秒)用 `--erase-full`,功能上不需要。
+
+🔴 **别手抄偏移**:`erase-region` 收的是裸地址,写成 `0x10000` 就把 launcher 擦了(要全量刷才能
+再开机);`erase-flash` 不带范围 = 整片 16MB 连 bootloader/分区表一起没。`flash_one.sh --erase`
+只认登记过的 app 名/槽位名,不收裸偏移,就是为了让这两种错在语法上不可能。
 
 ## 全量刷(首次上机 / 改了 partitions.csv / 误刷救砖)
 
