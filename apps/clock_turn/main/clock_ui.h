@@ -52,6 +52,10 @@ void clock_ui_set_mode(bool quiz);
 /** @brief 旋钮连接状态(拔线/插上)→ 状态条①连接点变色(绿/红)。no-op 保护。 */
 void clock_ui_set_linked(bool linked);
 
+/** @brief 状态条①电量壳:按 pct 改填充宽度(<15% 转红,充电中转绿)。no-op 保护。
+ *  给家长看的仪表,不是给孩子的信息(所以可以小)。 */
+void clock_ui_set_battery(int pct, bool charging);
+
 /**
  * @brief ② 数字钟读数(SPEC §5.3.2.1/§5.4)。
  * @param show        false = 只显三个占位点(不泄露任何时刻)。

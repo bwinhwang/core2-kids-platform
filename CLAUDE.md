@@ -34,12 +34,12 @@
 
 | App | 槽 | 外设 | 状态 | 文档 |
 |---|---|---|---|---|
-| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 核心实机验证(M0–M5+打盹)→ 🔄 难度批:陷阱/巡逻怪 → **绕圈怪**(已 build+校验,待烧录点检) | `apps/tilt_maze/SPEC.md` + `README.md` |
+| **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验收(核心 M0–M5 + 打盹 + 难度批:陷阱/巡逻怪/绕圈怪) | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
-| **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | 🔄 P1 群体手感实机验证 → P2 归家闭环 + P3 打磨(睡醒/彩蛋/家加强批/图标)已烧录,待实机点检 | `apps/chick_pour/SPEC.md` + `README.md` |
-| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | 🔄 **平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2)。M0+M1 已实机验证 → 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)+ **降难度批**(时针砖红 / 步进 5→15 分钟)已 build,待烧录点检 | `apps/clock_turn/SPEC.md` |
-| **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ v2.1 分层实机验证 → 🔄 v2.2 趣味批 + 摇杆回中修复(已烧录,待实机点检) | `apps/chain_lab/SPEC.md` + `README.md` |
-| **launcher** 卡带机选择页 | factory | — | ✅ 已重刷上机(2026-07-13);⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
+| **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | ✅ 实机验收(P1 群体手感 + P2 归家闭环 + P3 打磨:睡醒/彩蛋/家加强批/图标) | `apps/chick_pour/SPEC.md` + `README.md` |
+| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | ✅ 实机验收。**平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2):M0+M1 + 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)+ 降难度批(时针砖红 / 步进 5→15 分钟) | `apps/clock_turn/SPEC.md` |
+| **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ 实机验收(v2.1 深度分层 + v2.2 趣味批 + 摇杆回中修复) | `apps/chain_lab/SPEC.md` + `README.md` |
+| **launcher** 卡带机选择页 | factory | — | ✅ 实机验收;⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 
 > ⚠️ **clock_turn 是「教育应用」不是游戏卡带**:§2 五原则里"零失败"的**表现形式**、以及
 > ROADMAP 的选型铁律(内容轴厚度 / 即拿即玩 / 独自可玩)对它显式豁免,但 §6 渲染红线、
@@ -133,8 +133,9 @@
 components/
   core2_board/     一键 bring-up:core2_board_init(enable_leds) 固化初始化顺序
                    (AXP192 → LCD/触摸/LVGL/喇叭 → 开 EXTEN 供 5V → 灯带 → PORT.A 懒加载)
-  core2_power/     AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)
-  core2_sleep/     两级省电编排(打盹 / 深度省电 / 去抖唤醒,机制见 §7)
+  core2_power/     AXP192 直控:M-Bus 5V(EXTEN)/ 背光真开关(DCDC3)/ 软件关机
+  power_monitor/   AXP192 电池 ADC:电压 / 双向电流 / USB 在位 / 粗略电量 %(见 §7)
+  core2_sleep/     两级省电编排(打盹 / 深度省电 / 去抖唤醒 / 久置自动关机,机制见 §7)
   motion_detect/   "有没有人在玩"检测(帧间加速度差 + 去抖,纯逻辑)
   app_slot/        多 App 启动选择(otadata)+ 回 factory(见 §9;电源键退出 2026-07-09 已取消)
   imu_mpu6886/     MPU6886 最小驱动:输出三轴加速度(g)
@@ -255,12 +256,19 @@ components/
 
 设备会被**摇晃/磕碰/猛倾**:传感器读数滤波 + 速度封顶 + 死区,避免异常值让画面瞬移或卡死。电池仅 Bottom2 500mAh,**必须省电**。
 
+> 🔴 **DEEP 不是终点站,久置会自动关机(2026-08-12)。** 本章的省电只省外设电:主控自始至终
+> 160MHz 全速(没开 `CONFIG_PM_ENABLE`),LDO2 屏逻辑电 / PSRAM / 功放也一直供着——光靠 DEEP
+> 停在那儿,500mAh 电芯会一路耗到放空。所以 **DEEP 满 10min 自动断电**(`deep_shutdown_ms`),
+> 另有**任何阶段电压 <3300mV 关机**防深放电(`crit_bat_mv`);**插着 USB 时两条都跳过**
+> (在充电/在开发)。**主控侧(DFS / light sleep / PSRAM)一行都没动**,四条路各自的代价
+> 与"下一步该先量什么"见 `docs/ROADMAP.md` §7。
+
 ### 7.1 两级省电机制(`core2_sleep` + `core2_power`)
 
 > 三级状态由 **IMU 单一信号**驱动;灯带与背光是**两条独立 AXP192 电源**,分别断/恢复。踩过的三个坑见本节末——都属
 > 「BSP 不管、得直接控 AXP192」那一类。游戏侧每帧 `core2_sleep_feed()` 喂加速度即可(桌面玩法另需 `core2_sleep_kick`,见 §10)。
 
-**状态流**:`PLAY ──(机身静止 12s)──► IDLE 打盹 ──(再静止 60s)──► DEEP_IDLE 深度省电`;任一休眠态检测到「真的动了」→ 唤醒 → 回 PLAY。
+**状态流**:`PLAY ──(机身静止 12s)──► IDLE 打盹 ──(再静止 60s)──► DEEP_IDLE 深度省电 ──(再 10min)──► 关机`;任一休眠态检测到「真的动了」→ 唤醒 → 回 PLAY。
 
 **核心信号——机身动作量**(每帧算一次):`s_motion = |Δax| + |Δay| + |Δaz|`(帧间三轴加速度变化,g)。平放静止
 ≈0.005~0.03(噪声尖峰偶达 ~0.08),被拿起/倾斜 >0.12(`IDLE_WAKE_THRESH`)。**「有没有人在玩」只由此判定**,与游戏对象的运动无关。
@@ -269,6 +277,12 @@ components/
 - **DEEP_IDLE 深度省电**:`core2_power_backlight(false)` 断 DCDC3(**背光真全黑**)+ 灯带熄
   + `core2_power_bus_5v(false)` 切 M-Bus 5V(断灯带/单元供电、省 SY7088 静态电流)+ 降轮询频率。
 - **唤醒**:去抖后依次 `bus_5v(true)` → `backlight(true)` → 恢复亮度/灯带 → `HAPTIC_WAKE` → PLAY。
+- **关机**:DEEP 满 `deep_shutdown_ms` 或电压跌破 `crit_bat_mv` → 震动+音提示 → `core2_power_shutdown()`。
+
+🔴 **休眠时记得停自己的 LVGL 无限动画**:game_task 按 stage 跳过逻辑/渲染**管不住 LVGL 的动画
+时间线**——`LV_ANIM_REPEAT_INFINITE` 的动效会穿透 NAP/DEEP,一直重绘 + SPI flush 到一块黑屏,
+CPU 永远进不了 idle。用 `core2_sleep_cfg_t.on_stage_change` 回调在离开 AWAKE 时 `lv_anim_delete`、
+回来时重起(launcher 吉祥物、tilt_maze 家脉动即此办)。
 
 > 阈值、帧数、去抖窗口这些**实现细节见 `components/core2_sleep/README.md`**,本节只留契约与坑。
 

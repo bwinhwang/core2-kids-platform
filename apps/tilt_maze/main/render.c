@@ -423,9 +423,13 @@ void render_ball_squash(void)
     s_squash = 1.0f;   // 下一帧 render_ball_update 起效并衰减
 }
 
+static bool s_home_fast;      // 家脉动当前档位(休眠里删掉动画,唤醒按这个原样恢复)
+static bool s_anim_asleep;
+
 void render_home_excited(bool fast)
 {
-    if (!s_home) return;
+    s_home_fast = fast;
+    if (!s_home || s_anim_asleep) return;   // 休眠中只记档位,不真起动画
     bsp_display_lock(0);
     lv_anim_t a;
     lv_anim_init(&a);
@@ -437,6 +441,22 @@ void render_home_excited(bool fast)
     lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
     lv_anim_start(&a);     // 同 var+cb 会替换旧动画
     bsp_display_unlock();
+}
+
+// 家的脉动是 REPEAT_INFINITE:不显式删,打盹/深度省电期间 LVGL 照样按动画帧重绘 +
+// SPI flush 到一块黑屏,CPU 永远进不了 idle。
+void render_set_sleeping(bool sleeping)
+{
+    if (sleeping == s_anim_asleep) return;
+    s_anim_asleep = sleeping;
+    if (!s_home) return;
+    bsp_display_lock(0);
+    if (sleeping) {
+        lv_anim_delete(s_home, cb_scale);
+        cb_scale(s_home, LV_SCALE_NONE);   // 停在原尺寸,别留个放大到一半的家
+    }
+    bsp_display_unlock();
+    if (!sleeping) render_home_excited(s_home_fast);   // 内部自持锁,别套在上面的锁里
 }
 
 void render_collect_star(int idx)

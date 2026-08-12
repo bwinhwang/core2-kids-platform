@@ -154,7 +154,8 @@ static void game_task(void *arg)
         // 纯 IMU 玩法(SPEC §10):喂加速度即可,无需 core2_sleep_kick。
         // 打盹在 ATTRACT(睡着摆样)与 PLAY 允许;PARTY 是庆祝态,按 core2_sleep 约定
         // 给 false。休眠中进度保留(§4:唤醒回当前进度,归家的不放出来)。
-        bool nap_ok = have && (s_state != ST_PARTY);
+        // 不带 have:IMU 掉线时反而更该让它睡,否则传感器故障 = 耗干电池
+        bool nap_ok = (s_state != ST_PARTY);
         int delay_ms = core2_sleep_feed(&s_sleep,
                                         have ? (float[]){ acc.x, acc.y, acc.z } : NULL,
                                         nap_ok);

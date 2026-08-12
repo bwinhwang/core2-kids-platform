@@ -52,6 +52,7 @@ static lv_obj_t *s_mode_a_hi, *s_mode_b_hi;          // 选中槽底(C_CARD_HI)
 static lv_obj_t *s_mode_a_head, *s_mode_a_body;      // 槽A:人形(头+肩)
 static lv_obj_t *s_mode_b_border, *s_mode_b_l1, *s_mode_b_l2;  // 槽B:屏形(边框+两条线)
 static lv_obj_t *s_link_dot;
+static lv_obj_t *s_batt_fill;
 static lv_obj_t *s_hold_bar;
 static lv_obj_t *s_mode_hotspot;
 static bool       s_mode_quiz = false;      // 应用层当前模式的 UI 侧镜像(no-op 判断用)
@@ -396,7 +397,7 @@ static void create_status_bar(lv_obj_t *scr)
     lv_obj_set_style_radius(s_link_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(s_link_dot, LV_OPA_COVER, 0);
 
-    // 电量壳:本轮只画静态满格(不接 AXP192 真读数,SPEC §5.3 TODO),画完不再碰
+    // 电量壳:外壳画完不再碰,里面那条 fill 由 clock_ui_set_battery 定期改宽度/颜色
     lv_obj_t *batt_body = make_plain(scr);
     lv_obj_set_pos(batt_body, BATT_X0, BATT_Y0);
     lv_obj_set_size(batt_body, BATT_W, BATT_H);
@@ -411,11 +412,11 @@ static void create_status_bar(lv_obj_t *scr)
     lv_obj_set_style_bg_opa(batt_nub, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(batt_nub, lv_color_hex(C_MUTED), 0);
 
-    lv_obj_t *batt_fill = make_plain(scr);
-    lv_obj_set_pos(batt_fill, BATT_X0 + 3, BATT_Y0 + 3);
-    lv_obj_set_size(batt_fill, BATT_W - 6, BATT_H - 6);
-    lv_obj_set_style_bg_opa(batt_fill, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(batt_fill, lv_color_hex(C_MUTED), 0);
+    s_batt_fill = make_plain(scr);
+    lv_obj_set_pos(s_batt_fill, BATT_X0 + 3, BATT_Y0 + 3);
+    lv_obj_set_size(s_batt_fill, BATT_W - 6, BATT_H - 6);
+    lv_obj_set_style_bg_opa(s_batt_fill, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(C_MUTED), 0);
 
     // 长按进度条(SPEC §5.3.5):按住状态条切模式期间从 X0 长到 X1,松手不足则归零隐藏
     s_hold_bar = lv_bar_create(scr);
@@ -696,6 +697,20 @@ void clock_ui_set_linked(bool linked)
 
     bsp_display_lock(0);
     lv_obj_set_style_bg_color(s_link_dot, lv_color_hex(linked ? C_LINK_OK : C_LINK_BAD), 0);
+    bsp_display_unlock();
+}
+
+void clock_ui_set_battery(int pct, bool charging)
+{
+    static int s_last_pct = -1;
+    if (!s_batt_fill || pct == s_last_pct) return;   // no-op 保护:每 10s 调一次,值多半没变
+    s_last_pct = pct;
+
+    int w = (BATT_W - 6) * pct / 100;
+    bsp_display_lock(0);
+    lv_obj_set_width(s_batt_fill, w < 2 ? 2 : w);
+    lv_obj_set_style_bg_color(s_batt_fill,
+        lv_color_hex(charging ? C_LINK_OK : (pct < 15 ? C_LINK_BAD : C_MUTED)), 0);
     bsp_display_unlock();
 }
 

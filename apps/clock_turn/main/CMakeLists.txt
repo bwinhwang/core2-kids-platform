@@ -11,6 +11,7 @@ idf_component_register(
         core2_board             # 平台一键 bring-up(顺带开 PORT.C 5V/EXTEN,touch_btns 随之起)
         core2_sleep              # 两级省电编排(打盹/深度省电/唤醒)
         imu_mpu6886              # 机身动作量(喂 core2_sleep)
+        power_monitor            # 状态条电量壳读数
         chain_bus                # Chain UART 传输层(PORT.C/UART2)
         unit_chain_encoder       # Chain Encoder(U207)
         ledstrip_fx               # 底座灯带(反馈通道,§7)

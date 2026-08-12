@@ -7,7 +7,7 @@
 //             然后音柱缓缓落回 0,重新开玩(唯一"彩蛋",非必经,零失败)
 //   拨动开关 → 白天/黑夜换景(天色 + 太阳↔月亮 + 星星,轻快琶音)
 //
-// 趣味增量第二批(FUN2_SPEC.md):柱顶小脸活化(眨眼/看向/嘴型/鼓腮)、
+// 趣味增量第二批:柱顶小脸活化(眨眼/看向/嘴型/鼓腮)、
 // 小鸟访客(自发拜访 + 图案彩蛋时逐柱蹦跳叙事)、图案彩蛋按形状差异化反馈、
 // 夜晚音色下移 + 星星微闪、多键齐按和弦彩蛋。
 //
@@ -841,7 +841,7 @@ static void wave_bounce(int lift, int step_ms, wave_dir_t dir)
     bsp_display_unlock();
 }
 
-// 五种图案各自的音/跳/灯/震/小鸟叙事(FUN2_SPEC.md §3.2)
+// 五种图案各自的音/跳/灯/震/小鸟叙事
 static void pattern_reward(pattern_t p)
 {
     switch (p) {
@@ -1225,9 +1225,10 @@ static void game_task(void *arg)
         imu_accel_t acc;
         bool have = (imu_mpu6886_read_accel(&acc) == ESP_OK);
 
+        // 不要求本帧读到 IMU:IMU 掉线时反而更该让它睡,否则传感器故障 = 耗干电池。
         int delay_ms = core2_sleep_feed(&s_sleep,
                                         have ? (float[]){ acc.x, acc.y, acc.z } : NULL,
-                                        s_state == ST_PLAY && have);
+                                        s_state == ST_PLAY);
         core2_sleep_stage_t stage = core2_sleep_stage(&s_sleep);
 
         core2_sleep_stage_t prev_stage = s_prev_stage;

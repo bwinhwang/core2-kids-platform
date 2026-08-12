@@ -24,6 +24,7 @@
 #include "core2_sleep.h"
 #include "haptics.h"
 #include "imu_mpu6886.h"
+#include "power_monitor.h"
 
 static const char *TAG = "launcher";
 
@@ -51,10 +52,28 @@ static lv_obj_t *plain(lv_obj_t *parent, int w, int h, uint32_t color, int radiu
 // ── 吉祥物「圆圆」小脸(顶部招牌,轻微上下浮动)───────────────────────
 static void mascot_bob_cb(void *obj, int32_t v) { lv_obj_set_y((lv_obj_t *)obj, v); }
 
+static lv_obj_t *s_mascot;   // 休眠时要删它的无限浮动动画(§省电)
+
+static void mascot_bob_start(void)
+{
+    // 上下浮动 ±4px(局部小区域低频动效,§9.5 帧预算内)
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_mascot);
+    lv_anim_set_exec_cb(&a, mascot_bob_cb);
+    lv_anim_set_values(&a, 8, 16);
+    lv_anim_set_duration(&a, 1400);
+    lv_anim_set_playback_duration(&a, 1400);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+}
+
 static void make_mascot(lv_obj_t *scr)
 {
     lv_obj_t *face = plain(scr, 44, 44, 0xFFD23F, LV_RADIUS_CIRCLE);  // 身体
     lv_obj_set_pos(face, (320 - 44) / 2, 10);
+    s_mascot = face;
 
     lv_obj_t *el = plain(face, 9, 9, 0xFFFFFF, LV_RADIUS_CIRCLE);     // 眼白 ×2
     lv_obj_align(el, LV_ALIGN_CENTER, -9, -4);
@@ -67,17 +86,64 @@ static void make_mascot(lv_obj_t *scr)
     lv_obj_t *beak = plain(face, 8, 6, 0xFB8B24, 3);                  // 小喙
     lv_obj_align(beak, LV_ALIGN_CENTER, 0, 8);
 
-    // 上下浮动 ±4px(局部小区域低频动效,§9.5 帧预算内)
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, face);
-    lv_anim_set_exec_cb(&a, mascot_bob_cb);
-    lv_anim_set_values(&a, 8, 16);
-    lv_anim_set_duration(&a, 1400);
-    lv_anim_set_playback_duration(&a, 1400);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
+    mascot_bob_start();
+}
+
+// ── 电量指示(右上角小电池;家长看的,幼儿靠颜色+图标玩,§13 文字仅装饰)──────
+// 尺寸不受 §8「对象 ≥64px」约束:那条护的是**幼儿要看的信息**,这里是家长的仪表。
+#define BATT_X   272
+#define BATT_Y   16
+#define BATT_W   34
+#define BATT_H   16
+
+static lv_obj_t *s_batt_fill;
+
+static void make_battery(lv_obj_t *scr)
+{
+    lv_obj_t *shell = plain(scr, BATT_W, BATT_H, 0xE4DFD2, 4);
+    lv_obj_set_pos(shell, BATT_X, BATT_Y);
+    lv_obj_set_style_border_width(shell, 2, 0);
+    lv_obj_set_style_border_color(shell, lv_color_hex(0xB9B0A0), 0);
+    lv_obj_t *nub = plain(scr, 3, 7, 0xB9B0A0, 1);
+    lv_obj_set_pos(nub, BATT_X + BATT_W, BATT_Y + BATT_H / 2 - 3);
+
+    s_batt_fill = plain(shell, BATT_W - 6, BATT_H - 6, 0xA7C957, 2);
+    lv_obj_align(s_batt_fill, LV_ALIGN_LEFT_MID, 0, 0);
+}
+
+// 定期刷新(主循环每 ~10s 调一次):电量条只在这里动,不进任何动画时间线。
+static void update_battery(void)
+{
+    power_status_t st;
+    if (!s_batt_fill || power_monitor_read(&st) != ESP_OK || st.bat_mv <= 0) return;
+
+    int   w   = (BATT_W - 6) * st.pct / 100;
+    // 充电时给整条蓝,不然"插着电还显示红"会让家长以为没充上
+    uint32_t c = st.usb    ? 0x4FB0D8
+               : st.pct < 15 ? 0xD9483A
+               : st.pct < 40 ? 0xFFC75F
+                             : 0xA7C957;
+    bsp_display_lock(0);
+    lv_obj_set_width(s_batt_fill, st.usb ? (BATT_W - 6) : (w < 2 ? 2 : w));
+    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(c), 0);
+    bsp_display_unlock();
+    ESP_LOGI(TAG, "电量 %dmV(~%d%%)%+dmA%s", st.bat_mv, st.pct, st.bat_ma,
+             st.usb ? " [USB]" : "");
+}
+
+// 休眠/唤醒:停掉(恢复)吉祥物的无限浮动动画。launcher 是设备待机时最常停留的页面
+// (开机在这、每次崩溃/复位也回这),不门控就等于打盹期间一直重绘 + flush 到黑屏
+// (2026-08-12 省电批)。
+static void on_sleep_stage(core2_sleep_stage_t from, core2_sleep_stage_t to)
+{
+    (void)from;
+    bsp_display_lock(0);
+    if (to == CORE2_SLEEP_AWAKE) {
+        mascot_bob_start();
+    } else {
+        lv_anim_delete(s_mascot, mascot_bob_cb);
+    }
+    bsp_display_unlock();
 }
 
 // ── 图标:倾斜迷宫(白底小迷宫 + 两道墙 + 球 + 家)────────────────────
@@ -275,6 +341,7 @@ static void ui_create(void)
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
     make_mascot(scr);
+    make_battery(scr);
 
     // 3×2 卡带架:x=8/112/216,y=64/152(96×80 + 8px 间距,铺满 320×240)
     for (int i = 0; i < APP_SLOT_COUNT; i++) {
@@ -302,8 +369,12 @@ void app_main(void)
     audio_fx_play(SND_HELLO);
     haptics_play(HAPTIC_HELLO);
 
-    // ③ 主循环:消费"待启动"槽位 + 喂省电编排(选择页久置 → 打盹/深度省电)
-    core2_sleep_init(&s_sleep, NULL);
+    // ③ 主循环:消费"待启动"槽位 + 喂省电编排(选择页久置 → 打盹/深度省电 → 自动关机)
+    core2_sleep_cfg_t scfg = CORE2_SLEEP_CFG_DEFAULT;
+    scfg.on_stage_change = on_sleep_stage;
+    core2_sleep_init(&s_sleep, &scfg);
+    update_battery();
+    int batt_accum_ms = 0;
     TickType_t last = xTaskGetTickCount();
     for (;;) {
         if (s_pending >= 0) {
@@ -321,6 +392,13 @@ void app_main(void)
         int delay_ms = core2_sleep_feed(&s_sleep,
                                         have ? (float[]){ a.x, a.y, a.z } : NULL,
                                         true);
+
+        // 电量条只在清醒时刷:屏黑着改 LVGL 对象照样触发重绘 + SPI flush
+        batt_accum_ms += delay_ms;
+        if (batt_accum_ms >= 10000) {
+            batt_accum_ms = 0;
+            if (core2_sleep_stage(&s_sleep) == CORE2_SLEEP_AWAKE) update_battery();
+        }
         vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
     }
 }

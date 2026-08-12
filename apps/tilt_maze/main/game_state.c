@@ -345,6 +345,14 @@ static void win_tick(void)
     }
 }
 
+// 休眠/唤醒:停掉(恢复)家的无限脉动动画。game_task 只是跳过自己的逻辑与渲染,
+// LVGL 那条动画时间线不归它管,不显式删就会穿透打盹一直重绘。
+static void on_sleep_stage(core2_sleep_stage_t from, core2_sleep_stage_t to)
+{
+    (void)from;
+    render_set_sleeping(to != CORE2_SLEEP_AWAKE);
+}
+
 // ── 主任务 ───────────────────────────────────────────────────────────
 static void game_task(void *arg)
 {
@@ -361,11 +369,13 @@ static void game_task(void *arg)
             continue;
         }
 
-        // 两级省电编排(打盹→深度省电→去抖唤醒)交给 core2_sleep:
-        // 只有 PLAY 且读到 IMU 样本的帧允许累计"静止";深度省电时返回值自动降频轮询。
+        // 两级省电编排(打盹→深度省电→去抖唤醒)交给 core2_sleep;深度省电时返回值自动降频。
+        // 🔴 ATTRACT 也必须算"可打盹":它是开机初始态,从 launcher 点进来没真去玩就放下
+        // 会一直卡在这儿,曾导致永不打盹、一路耗干电池(2026-08-12 修)。
+        // 也不再要求本帧读到 IMU:IMU 掉线时反而更该让它睡,否则传感器故障=耗干电池。
         int delay_ms = core2_sleep_feed(&s_sleep,
                                         have ? (float[]){ acc.x, acc.y, acc.z } : NULL,
-                                        s_state == ST_PLAY && have);
+                                        s_state == ST_PLAY || s_state == ST_ATTRACT);
         if (core2_sleep_stage(&s_sleep) == CORE2_SLEEP_AWAKE) {
             switch (s_state) {
                 case ST_ATTRACT: attract_tick(pa);   break;
@@ -392,6 +402,7 @@ void game_state_start(void)
     scfg.deep_poll_ms     = DEEP_IDLE_POLL_MS;
     scfg.wake_thresh      = IDLE_WAKE_THRESH;
     scfg.wake_frames      = WAKE_DEBOUNCE_FRAMES;
+    scfg.on_stage_change  = on_sleep_stage;
     core2_sleep_init(&s_sleep, &scfg);
 
     s_level_idx = 0;

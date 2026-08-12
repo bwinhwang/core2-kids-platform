@@ -47,14 +47,10 @@
 四条线,优先级从高到低:**A 收尾清账 → B 平台补课 → C 冷宫止损 → D 深耕与新卡带**。
 核心思路:钱(开发时间)全部投向被验证喜爱的形态;三冷只花"定去留"的钱,不再开发。
 
-### A. 收尾清账(零开发,只烧录+点检,立刻做)
+### ~~A. 收尾清账~~ ✅ 已清
 
-| # | 事项 | 现状 | 动作 |
-|---|---|---|---|
-| A1 | chain_lab v2.2 趣味批 | build 通过待烧录 | `tools/flash_one.sh chain_lab`,按 README 待实机清单点检(玩偶辨识度/咔声/金星) |
-| A2 | busy_knobs 趣味第二批(FUN2) | build 通过待烧录 | 烧录,按 `FUN2_SPEC.md` §9 点检(小脸/小鸟/和弦/夜晚音色),过了归档 FUN2_SPEC |
-
-这两批正是三强的增量,孩子在等,性价比最高。
+~~A1 chain_lab v2.2 趣味批 / A2 busy_knobs 趣味第二批(FUN2)~~ —— 均已烧录并实机验收通过,
+条目关闭(FUN2_SPEC 按其收尾说明归档删除,定案内容已并入 `apps/busy_knobs/README.md`)。
 
 ### B. 平台补课(直接影响每天使用体验)
 
@@ -62,7 +58,7 @@
 |---|---|---|
 | ~~B1~~ | ~~修家长菜单长按难触发~~ | ✅ **2026-08-06 用户确认该问题已不存在**,条目关闭(平台文档中的相关"已知坑"记录同批移除) |
 | B2 | 🔴 **回 launcher 入口铺开到全部卡带** | 现在只有 tilt_maze 有家长菜单 Home,其余卡带玩完只能断电重开——日用最大痛点。把 `parent_menu` 从 tilt_maze 提炼成 `components/parent_menu` 共享组件(亮度/音量/震动/Home),六张卡带全接 |
-| B3 | launcher 实机验收 | launcher 至今 ⏳ 待实机;顺带补齐专属图标(chain_lab 换抓娃娃机主题图标等),重刷 launcher 一次到位 |
+| ~~B3~~ | ~~launcher 实机验收~~ | ✅ 已验收关闭。仍欠的只是图标细活:chain_lab 换抓娃娃机主题图标 + 清三个死图标分支,等下次有真要加的图标时一起重刷 |
 | B4 | 家长设置 NVS 持久化 | 现重启回默认;做进 parent_menu 组件里,全卡带白得 |
 
 ### C. 冷宫处置(✅ 2026-07-12 用户拍板:直接回收)
@@ -226,11 +222,10 @@ fish_pond **把全部赌注押在技能轴上,然后把技能轴写没了**,于�
 > 另:**AI 追玩家 = 帮玩家瞄准 = 抹掉技能轴**。宽容判定(大 `BITE_R`)是对的(零失败),
 > 但宽容应该体现在"没打中也不惩罚",不是"不用打中"。
 
-### 槽位现状(⚠️ 已被 §6 更新)
+### 候选池
 
-ota_0 tilt_maze / ota_1 busy_knobs / ota_2 chick_pour / **ota_3 空** / ota_4 chain_lab /
-**ota_5 空**。候选池:pipe_garden(SPEC 在 `apps/pipe_garden/SPEC.md`,管段 ~80px 天然合规,
-未立项)——**立项前先按上面两道实现级验收过一遍**。
+pipe_garden(SPEC 在 `apps/pipe_garden/SPEC.md`,管段 ~80px 天然合规,未立项)——
+**立项前先按上面两道实现级验收过一遍**。
 
 ---
 
@@ -293,11 +288,53 @@ ota_0 tilt_maze / ota_1 busy_knobs / ota_2 chick_pour / **ota_3 空** / ota_4 ch
 clock_turn 是零外部资产的纯代码卡带。**教训**:立项时最容易高估的就是"要不要自建一套
 基础设施"——先问一遍这件事**能不能由在场的人做得更好**,能,就别写代码。
 
-### 槽位现状(本节为准)
+### 遗留
 
-ota_0 tilt_maze / ota_1 busy_knobs / ota_2 chick_pour / **ota_3 clock_turn(已立项,
-未开工)** / ota_4 chain_lab / **ota_5 空**。候选池:pipe_garden(原竞 ota_3,现只剩
-ota_5 可竞;未立项,立项前先过 §5 两道实现级验收)。
+槽位占用与各 app 状态**只在 `CLAUDE.md` §1 索引维护**,本文不再抄快照(抄一份就多一份会过期的)。
+pipe_garden 仍在候选池,只剩 ota_5 可竞,立项前先过 §5 两道实现级验收。
 
 launcher 的 peekaboo / feed_monster / busy_bus 图标分支仍是死代码(无害,设备旧 bin 未覆盖
 前还会正确显示);等下次有真要加的图标时一起清理 + 重刷 launcher,不为清死代码单独刷一次。
+
+---
+
+## 7. 2026-08-12:省电批(DEEP 不是终点站)
+
+**起因**:日常使用"放一阵就彻底没电了",现场看屏和灯带明明都灭了。
+
+**根因**:三级省电机制本身对、六个工程也全接上了,但它省的是**外设电**(屏 / 灯带 / M-Bus 5V),
+**从没碰过主控侧**;而且 DEEP 是终点站——设备永远不会自己关机,只会一直跑到电池放空
+(500mAh 电芯还每次都是深放电)。"屏和灯带都灭了却还是耗干",灭掉的正是唯一看得见的那部分。
+
+**已做**(实现细节在 `components/core2_sleep/README.md` 与 `power_monitor/README.md`,不在此重复):
+DEEP 满 10min 自动关机 + 任何阶段电压 <3300mV 关机(插着 USB 两条都跳过);tilt_maze 的
+ATTRACT 补进可打盹态、三处 `&& have` 去掉;launcher 与 tilt_maze 的 `LV_ANIM_REPEAT_INFINITE`
+接上 `on_stage_change` 在休眠时删掉;新增 `power_monitor` 组件 + launcher/clock_turn 的电量指示。
+
+### 🔴 仍未做的:主控侧一行都没动
+
+当前配置(已核实 `launcher/sdkconfig`):`# CONFIG_PM_ENABLE is not set`、无 tickless idle、
+CPU 固定 160MHz、`CONFIG_FREERTOS_HZ=1000`、`CONFIG_SPIRAM=y` 全套且从不断电。
+
+⚠️ 一个容易说过头的地方:**没开 PM 不等于"CPU 满负荷空转"**。
+**Confirmed via IDF v6.0 `components/esp_system/freertos_hooks.c`**:没开 PM 时 idle 钩子走
+`esp_cpu_wait_for_intr()`(WAITI),核在中断间隙是停的。真正没省的是 **PLL/APB 时钟常开、
+外设常时钟、PSRAM 与 flash 常供电,外加 tick 1000Hz 让内核每 1ms 就被叫醒一次**(DEEP 里
+我们自己那 8Hz 轮询反倒是小头)。这个区别直接决定下一步该动谁。
+
+| 做法 | 代价 / 风险 |
+|---|---|
+| `FREERTOS_HZ` 1000→100 | 最便宜(一行),但全仓 `pdMS_TO_TICKS(16)` 的 60fps 节奏会变 10ms 粒度,手感要实测 |
+| DFS(`PM_ENABLE` + `esp_pm_configure`,idle 降到 XTAL 40MHz) | 与 PSRAM **不冲突**(官方有 `mspi_psram_with_dfs` 测试用例);代价是中断延迟最大 +40µs、RTOS 计时精度下降 → SPI 刷屏与 I2S 音频要验 |
+| 自动 light sleep | 省最多,但外设被时钟门控、GPIO 中断不发,要显式配唤醒源;且 🔴 **开着 PSRAM 就不能 `ESP_SLEEP_POWER_DOWN_FLASH`**(flash 与 PSRAM 共用电源脚,断了丢数据)→ 带 PSRAM 的 light sleep 电流下不到手册那个数。这正是当初避开它的原因之一 |
+| 关掉 PSRAM | 自家代码只有 `components/screenshot/screenshot.c` 两处 `MALLOC_CAP_SPIRAM`(150KB 帧 + 230KB RLE)——**关掉 = 失去截图自查**(CLAUDE.md §10.1 那条 AI 看屏的路);且 `SPIRAM_USE_MALLOC=y`,BSP/LVGL 的大块分配现在也可能落在 PSRAM,得先确认内部 RAM 兜得住 |
+
+另有三处外设侧的余量没动:DEEP 里没断 LDO2(屏逻辑电)、没关 NS4168 功放(§5.1 防爆音纪律的
+代价)、`ledstrip` task 在 5V 已切时仍无条件 `led_strip_refresh()`。
+
+### 下一步先量什么
+
+**别按上表的顺序动手**。自动关机已经把"待机"这一段的收益按到零了,DFS / light sleep 真正
+值钱的地方其实是**正在玩的时候**——那才是续航大头。所以要量的是"玩着的时候多少 mA",
+不是待机。🔴 **插着 USB 量不到任何真数**(VBUS 在位时系统吃 USB 的电、电池转充电,
+放电电流恒 ~0),实用测法见 `components/core2_sleep/README.md` 末节。

@@ -19,6 +19,7 @@
 #include "core2_board.h"
 #include "core2_sleep.h"
 #include "imu_mpu6886.h"
+#include "power_monitor.h"
 
 #include "chain_bus.h"
 #include "unit_chain_encoder.h"
@@ -36,6 +37,8 @@ static int16_t s_enc_prev;            // 上一帧原始绝对计数(帧间 delt
 static bool    s_enc_have_prev;
 static int     s_enc_err_streak;
 static int     s_rescan_accum_ms;     // 距上次重扫累计的毫秒数(没插节点时 2s 周期重试,SPEC §1)
+#define BATT_POLL_MS  10000           // 状态条电量壳刷新周期
+static int     s_batt_accum_ms;
 
 // t = 分钟数(0..719)。默认落在 7:30 —— 恰好是 SPEC §13 M1 的验收帧,开机免转钮即可截图自查。
 static int s_t = 7 * 60 + 30;
@@ -265,6 +268,17 @@ static void game_task(void *arg)
         int delay_ms = core2_sleep_feed(&s_sleep,
                             have_acc ? (float[]){ acc.x, acc.y, acc.z } : NULL, true);
         core2_sleep_stage_t stage = core2_sleep_stage(&s_sleep);
+
+        // 状态条电量壳:只在清醒时刷(屏黑着改 LVGL 对象照样触发重绘 + SPI flush)
+        s_batt_accum_ms += delay_ms;
+        if (s_batt_accum_ms >= BATT_POLL_MS) {
+            s_batt_accum_ms = 0;
+            power_status_t ps;
+            if (stage == CORE2_SLEEP_AWAKE &&
+                power_monitor_read(&ps) == ESP_OK && ps.bat_mv > 0) {
+                clock_ui_set_battery(ps.pct, ps.usb);
+            }
+        }
 
         if (stage != CORE2_SLEEP_DEEP) {
             if (!s_enc_id) {

@@ -18,7 +18,7 @@
 - **图案彩蛋(不止"全满")**:每次转旋钮改档后 `detect_pattern()` 扫 8 柱队形——上/下楼梯(严格增/减)、一条线(全等高且 >0)、小山/山谷(单峰/谷、不在两端)——命中即小庆祝 `pattern_reward()`:按柱高左→右弹 8 音(一次 `audio_fx_play_notes`,<400ms,天然"听出形状")+ 8 柱错峰波浪小跳 + 底座灯 `LED_FX_COLLECT` 扫圈 + 轻震。**不改档位、不重置**;`s_last_pattern` 记忆 → 同图案只贺一次。"全 8 满"仍是最高优先级大庆祝(`enter_win`,命中即 return)。
 - **摇一摇 → 洗成新队形(用上平时只做休眠检测的 IMU)**:`game_task` 每帧读加速度算帧间三轴变化 `d`;`d > SHAKE_THRESH` 带**泄漏计数**(低于阈值就 −1),攒够 `SHAKE_NEEDED` 且不在冷却 + 清醒 + ST_PLAY + 单元在位 → `trigger_shuffle()`:8 柱洗成上/下楼梯或小山 + 滑音 + 中震 + 底座彩虹 + 就地灯刷新。泄漏 + 高阈值(桌面转旋钮 `d` 远达不到 1.2g)防单次磕碰/放桌误触。
 
-### 趣味增量第二批(2026-07-08 实施,`FUN2_SPEC.md`;build 通过,⏳ 待实机验收)
+### 趣味增量第二批(2026-07-08 实施,✅ 实机验收通过)
 
 只动 `main/knobs_game.c` + `tuning.h` + `components/ledstrip_fx`(仅尾部追加 5 个新枚举 + 对应渲染分支,既有 3 特效/4 基础模式字节未动,`idf.py -C apps/tilt_maze build` 已验证不破坏其它 app)。
 
@@ -27,8 +27,6 @@
 - **图案彩蛋按形状差异化**:五种图案各自一套音/跳方向/灯效/震动组合(上楼梯=正向 arp+`WAVE_L2R`+`LED_FX_SWEEP_L2R`;下楼梯=反向取音但听感仍上行+`WAVE_R2L`+`LED_FX_SWEEP_R2L`;一条线=齐唱长音+`WAVE_ALL`+`LED_FX_FLASH`+`HAPTIC_BUMP_MED`;山=`WAVE_IN`+`LED_FX_GATHER`;谷=`WAVE_OUT`+`LED_FX_SPREAD`),命中时按規則触发小鸟 RIDE(鸟在场则从当前栖息柱直接骑向终点柱,不在场则先快速飞入起点柱再骑;RIDE 进行中忽略新命中)。`ledstrip_fx` 新增的 5 个特效尾部追加到 `led_fx_t`,沿用 `LED_FX_COLLECT` 的索引序(0..9 直接当"环序"用,不做物理左右重映射)。
 - **夜晚声音世界 + 星星微闪**:`level_hz()` 按 `s_night` 切换白天/夜晚两张等长五声音阶表(夜表整体下移纯四度,不是降八度——NS4168 小喇叭低频还原差);转动"叮"/按键"唱歌"/图案 arp/小鸟落地音四处响度和时长各自有夜值,集中在 `fx_tick_ms/amp()` 等几个内联小工具里取,不在各处写三目。3 颗星星仅夜晚+清醒时独立随机切换亮暗两种尺寸(6×6↔4×4,纯色块换尺寸+挪 1px 保持视觉中心,无 alpha),`scene_apply()` 每次都会把星星复位为亮态(不论切哪个方向),确保下次入夜从亮态起跳。
 - **多键齐按和弦彩蛋**:按键改边沿检测后不立即 `sing()`,先记 pending 并开一个 `CHORD_WINDOW_FRAMES`(2 帧≈66ms,仍 <100ms 红线)收集窗口,窗口到期按 pending 数量结算——1 个走原单按 `sing()`,≥2 个走 `chord_burst()`(按档位升序组一次快速琶音 + 被按柱一起弹跳 + 一次 `HAPTIC_BUMP_MED` + 底座 `LED_FX_FLASH` + 各柱就地灯闪白)。窗口期若状态跑离 `awake_play`(如全满触发 WIN),直接丢弃 pending 不结算。`sing()` 拆成了纯动画的 `sing_anim()` + 音/震/灯部分,单按路径行为与改前一致。
-
-**待实机点检**(WSL 环境无法烧录,以下需用户在真机上确认,清单见 `FUN2_SPEC.md` §9):眨眼/看向观感、嘴型三档与鼓腮阈值、小鸟拜访节奏与受惊反应、五种图案的方向感是否与直觉一致(尤其 LED 扫向的物理左右对应,`FUN2_SPEC.md` §6 已标注"待实机确认,不符则序表取反,一行改")、夜晚音色是否过闷、和弦窗口手感、`game_task` 栈(现 4096)是否需要按规格提到 4608。确认无误后按 `FUN2_SPEC.md` 开头的收尾说明归档该文件。
 
 ## 平台新增(可复用,已沉淀进组件)
 
@@ -64,12 +62,12 @@
 
 > 顺带修正 Unit 文档:改地址寄存器是 **0xFF 非 0xF0**、按键**按下=0**、上电 LED 默认全灭、补 0x58~0x62 寄存器(官方例程+固件源码双核实)。
 
-## 待实机标定(tuning.h,一行改一个)
+## 可调参数(tuning.h,一行改一个)
 
 - 旋转方向 `ENC_DIR`、一格计数数 `ENC_COUNTS_PER_LEVEL`、就地灯亮度 `KNOB_LED_MAX=110`(按键极性已核实无需标定);
 - 趣味增量第一批:`ARP_MS=42`/`ARP_AMP=55`、`SHAKE_THRESH=1.2`(g,**最可能要标定**:没反应调低、误触调高)、`SHAKE_NEEDED=3`(想更跟手降到 2)、`SHAKE_COOLDOWN_MS=1500`、`SHUFFLE_MS=520`。
 - 趣味增量第二批:`BLINK_MIN_S/MAX_S=2~6`、`BLINK_FRAMES=3`、`BLINK_DOUBLE_PCT=20`、`GAZE_HOLD_MS=1000`、`GAZE_DX=2`、`MOUTH_SMILE_LV=9`/`MOUTH_OPEN_LV=18`(嘴型阈值,**较可能要标定**:三档观感不明显就调档位线);`BIRD_VISIT_MIN_S/MAX_S=20~45`、`BIRD_PERCH_MIN_S/MAX_S=8~15`、`BIRD_FLY_MS=700`、`BIRD_HOP_MS=110`、`BIRD_NOTE_MS/AMP=45/45`、`BIRD_NOTE_AMP_NIGHT=32`;`WAVE_STEP_MS=45`、`EQUAL_NOTE_MS/AMP=280/60`、`ARP_AMP_NIGHT=40`;`TICK_MS_NIGHT/AMP_NIGHT=60/30`、`SING_AMP_NIGHT=55`、`TWINKLE_MIN_F/MAX_F=24~60`(**较可能要标定**:星星切换太突兀就调窄区间或加中间态);`CHORD_WINDOW_FRAMES=2`(**最可能要标定**:齐按不跟手就得权衡窗口↔灵敏度)、`CHORD_NOTE_MS/AMP=35/60`。
-- `ledstrip_fx` 新增 5 特效的扫向物理左右对应关系待实机确认(不符则 `ledstrip_fx.c` 里的索引序表取反,一行改,见 `FUN2_SPEC.md` §6)。
+- `ledstrip_fx` 新增 5 特效直接把灯珠索引序 0..9 当"环序"用,没做物理左右重映射;哪天觉得扫向反了,把 `ledstrip_fx.c` 里的索引序表取反即可(一行改)。
 
 ## launcher 图标
 
@@ -78,4 +76,4 @@ launcher 加 busy_knobs 专属图标分支(三旋钮+音柱,**要重刷 launcher
 ## 状态
 
 ✅ **2026-07-06 实机验收通过**(忙碌台 + 图案彩蛋 + 摇一摇)。
-⏳ 趣味增量第二批(2026-07-08):build 通过(app 0x9aee0,槽内余 60%;`apps/tilt_maze` 联动验证 `ledstrip_fx` 改动无回归),**待实机验收**(WSL 环境无法烧录)。
+✅ **趣味增量第二批(2026-07-08)实机验收通过**(小脸活化 / 小鸟访客 / 图案差异化 / 夜晚音色 + 星星 / 和弦彩蛋;`apps/tilt_maze` 联动验证 `ledstrip_fx` 改动无回归)。

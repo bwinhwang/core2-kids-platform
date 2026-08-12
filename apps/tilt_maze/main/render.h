@@ -29,6 +29,10 @@ void render_hint_stars(void);
 /** @brief 家脉动快/慢切换(接近时加快,§5.2)。 */
 void render_home_excited(bool fast);
 
+/** @brief 进/出休眠:删掉(恢复)家的无限脉动动画。
+ *  屏都黑了 LVGL 还在按动画帧重绘 + flush,CPU 永远进不了 idle。 */
+void render_set_sleeping(bool sleeping);
+
 /** @brief 第 idx 只巡逻怪每帧移动(该只不存在则空操作);(cx,cy)为屏幕坐标。 */
 void render_hazard_update(int idx, float cx, float cy);
 

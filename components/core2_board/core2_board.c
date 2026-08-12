@@ -8,6 +8,7 @@
 #include "bsp/m5stack_core_2.h"
 
 #include "core2_power.h"
+#include "power_monitor.h"
 #include "ledstrip_fx.h"
 #include "audio_fx.h"
 #include "haptics.h"
@@ -59,6 +60,11 @@ esp_err_t core2_board_init(const core2_board_cfg_t *cfg)
     // 4) AXP192 直控绑定(EXTEN/DCDC3)。必须在 bsp_display_start 之后:
     //    BSP 初始化会重写 REG 0x12,先绑先开会被清掉。
     ESP_RETURN_ON_ERROR(core2_power_init(s_i2c), TAG, "core2_power_init 失败");
+
+    //    电池 ADC(低电关机/屏上电量都靠它;读不到只是没电量显示,不拦起机)
+    if (power_monitor_init() != ESP_OK) {
+        ESP_LOGW(TAG, "power_monitor 初始化失败,电量读数不可用");
+    }
 
     // 5) PORT.A 待机上拉(须在开 5V 之前):8Encoder 这类 STM32 单元的 bootloader
     //    在上电瞬间检测 I2C 两线,双低=留在引导态(0x54)不进应用(内部固件源码核实,
