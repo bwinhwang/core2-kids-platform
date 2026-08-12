@@ -83,11 +83,17 @@ C_RIM       = (198, 158, 98)
 C_TICK_MAJ  = (140, 100, 60)
 C_TICK_MIN  = (196, 172, 138)
 C_NUM       = (112, 80, 48)
-C_HAND      = (58, 50, 44)      # 分针 + 中心帽 + 反馈脸五官(暖黑)
+C_HAND      = (58, 50, 44)      # 中心帽 + 反馈脸五官(暖黑)。中心帽刻意保持中性:染成任一针的
+                                #   颜色都会让那根针在根部"长出去一截",破坏长短这条几何线索。
 C_HAND_HOUR = (196, 69, 58)     # ★ 时针:砖红(2026-08-10 用户改判,推翻 §5.3.1「两针同色」,
                                 #   代价=真挂钟上没有这条线索,见 SPEC §5.3.1 修订段)。
                                 #   长短 42:72 + 粗细 8:5 这两条原生区分一条都不撤,颜色是第三条冗余。
-C_DIGIT     = (238, 232, 220)   # 数字钟读数(FREE 揭晓态)
+C_HAND_MIN  = (30, 110, 120)    # ★ 分针:深青。与时针红配对 →「红=时针/小时、青=分针/分钟」两条规则。
+                                #   钟面对比度 4.87,与时针 4.06 分量相当,谁都不压过谁。
+C_DIGIT_MIN = (127, 216, 224)   # ★ 读数的**分钟**段:C_HAND_MIN 的提亮档(底卡 6.49/6.94)
+C_DIGIT_HOUR = (255, 138, 122)  # ★ 读数的**小时**段:C_HAND_HOUR 的提亮档(同色相 ~6°)。
+                                #   不能直接用砖红:指针在浅色钟面、数字在深色底卡,对比度要求
+                                #   一个要 ≤0.233 亮度、一个要 ≥0.250,两区间不相交(见 tuning.h 注释)。
 C_CAP       = (58, 50, 44)
 C_QUIZ      = (255, 154, 60)    # 暖橙:QUIZ 模式的统一强调色
 C_HINT      = (255, 196, 72)    # 提示弧-第1次按错(暗)
@@ -249,7 +255,9 @@ def draw_panel(d, t, quiz=False, reveal=False, correct=False):
     """② 数字钟读数 —— 🔴 **不是实时的**,与按键动作同门槛(SPEC §5.3.2.1/§5.4)。
 
     ⚠️ 横排「7:30」是标准写法。竖排(小时一行、分钟一行)读起来像三位数 730,试过,不行。
-    ⚠️ 小时与分钟不分色,理由同指针:真表上没有这条线索,教了会造成迁移失败。
+    ⚠️ 2026-08-10 起小时段染 C_DIGIT_HOUR、分钟段染 C_DIGIT_MIN(两针颜色各自的提亮档),
+       与钟面的「红=时针、青=分针」对上;原「小时与分钟不分色」的规矩随 §5.3.1 一起改判,
+       代价见那一节修订段。
     🔴 **MODE_FREE 默认只显示占位点**:实时读数会让孩子直接读数字、一眼都不看指针 ——
        数字对他不是"冗余的第二通道",是**更便宜的那条通道**,3~4 岁一定走最省力的路。
        按旋钮键揭晓,数秒后淡回占位。
@@ -264,8 +272,19 @@ def draw_panel(d, t, quiz=False, reveal=False, correct=False):
                       fill=(92, 100, 120))
         return
     hh = (t // 60) or 12
-    color = C_GREEN if correct else (C_QUIZ if quiz else C_DIGIT)
-    d.text((cx, cy), f"{hh}:{t % 60:02d}", font=font(READOUT_H), fill=color, anchor="mm")
+    # 🔴 读数恒为「红小时 + 青分钟」→ MODE_QUIZ 原本的"读数常亮橙"孩子向模式信号没了,
+    #    只剩底卡(暖橙暗底 + 橙描边)。见 SPEC §12 风险 1。
+    color = C_GREEN if correct else C_DIGIT_MIN
+    f = font(READOUT_H)
+    s_h, s_m = f"{hh}", f":{t % 60:02d}"
+    # 小时段单独染 C_DIGIT_HOUR(实机走 LVGL 行内着色,这里手工两段拼)。整串仍按合并宽度
+    # 居中 —— 不能各自居中,否则两段会叠在一起。
+    w_h = f.getbbox(s_h)[2] - f.getbbox(s_h)[0]
+    w_m = f.getbbox(s_m)[2] - f.getbbox(s_m)[0]
+    x0 = cx - (w_h + w_m) / 2
+    h_color = color if correct else C_DIGIT_HOUR      # 答对庆祝态整串变绿,不掺第二色(§7)
+    d.text((x0, cy), s_h, font=f, fill=h_color, anchor="lm")
+    d.text((x0 + w_h, cy), s_m, font=f, fill=color, anchor="lm")
 
 
 def draw_face(d, mood):
@@ -368,7 +387,7 @@ def frame(t, path, *, quiz_target=None, miss=0, win=False, mood="idle",
     #    两针重合时(12:00 最典型)那圈钟面色描边会把时针整条抹掉,屏上只剩一条 5px 细线,
     #    "粗短=时针"这条唯一的区分线索当场失效(SPEC §5.3.1)。时针在上则得到
     #    「粗短桩 + 细长尖」,重合姿态照样读得出来。clock_ui.c::create_dynamic_hands 同此序。
-    draw_hand(d, ma, HAND_MIN_LEN, HAND_MIN_W, C_HAND)
+    draw_hand(d, ma, HAND_MIN_LEN, HAND_MIN_W, C_HAND_MIN)
     draw_hand(d, ha, HAND_HOUR_LEN, HAND_HOUR_W, C_HAND_HOUR)
     draw_cap(d)
     # 信息区

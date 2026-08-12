@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -244,7 +245,7 @@ static void create_dynamic_hands(void)
     //    与两针各自什么颜色无关,分针在上照样能把时针抹掉一整条。别因为"现在有颜色了"
     //    就以为画序可以随便换。
     s_min.edge  = make_hand_segment(s_clock_group, HAND_MIN_W  + HAND_EDGE * 2, C_FACE);
-    s_min.line  = make_hand_segment(s_clock_group, HAND_MIN_W,                  C_HAND);
+    s_min.line  = make_hand_segment(s_clock_group, HAND_MIN_W,                  C_HAND_MIN);
     s_hour.edge = make_hand_segment(s_clock_group, HAND_HOUR_W + HAND_EDGE * 2, C_FACE);
     s_hour.line = make_hand_segment(s_clock_group, HAND_HOUR_W,                 C_HAND_HOUR);
 
@@ -472,7 +473,10 @@ static void create_panel(lv_obj_t *scr)
     // (那是给 12 刻度数字用的,字高只有 13px)。CONFIG_LV_FONT_MONTSERRAT_34 在
     // sdkconfig.defaults 里开(改后须 rm sdkconfig 再 fullclean,CLAUDE.md §11)。
     lv_obj_set_style_text_font(s_panel_label, &lv_font_montserrat_34, 0);
-    lv_obj_set_style_text_color(s_panel_label, lv_color_hex(C_DIGIT), 0);
+    lv_obj_set_style_text_color(s_panel_label, lv_color_hex(C_DIGIT_MIN), 0);
+    // 小时段单独上色靠 LVGL 的行内着色指令「#RRGGBB 文本#」(lv_label_set_recolor,9.3 起可用):
+    // 指令字符不参与排版,渲染宽度与纯 "12:55" 一致 —— 下面那段量宽检查因此仍然有效。
+    lv_label_set_recolor(s_panel_label, true);
     lv_label_set_text(s_panel_label, "");
     lv_obj_center(s_panel_label);
     lv_obj_add_flag(s_panel_label, LV_OBJ_FLAG_HIDDEN);
@@ -722,8 +726,21 @@ void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
         if (hh == 0) {
             hh = 12;
         }
-        lv_label_set_text_fmt(s_panel_label, "%d:%02d", hh, t % 60);
-        uint32_t color = correct ? C_GREEN : (quiz_style ? C_QUIZ : C_DIGIT);
+        // 小时段染 C_DIGIT_HOUR、分钟段染 C_DIGIT_MIN(= 两针颜色各自的提亮档),让
+        // 「红=时针/小时、青=分针/分钟」两条规则在钟面和读数上对上(SPEC §5.3.1 修订段)。
+        // **答对庆祝态例外**:整串变绿是 §7 反馈矩阵里"对了"的信号,那 2 秒不掺别的颜色 ——
+        // 关联是常态教具,庆祝是瞬时事件,别让后者被稀释。
+        // ⚠️ 副作用:MODE_QUIZ 原本靠"读数常亮橙"当孩子向的模式信号(§5.3.2.1),现在读数
+        //    恒为红青两色 → 该信号只剩底卡(暖橙暗底 + 橙描边)。见 SPEC §12 风险 1。
+        char buf[28];
+        if (correct) {
+            snprintf(buf, sizeof buf, "%d:%02d", hh, t % 60);
+        } else {
+            snprintf(buf, sizeof buf, "#%06X %d#:%02d",
+                     (unsigned)C_DIGIT_HOUR, hh, t % 60);
+        }
+        lv_label_set_text(s_panel_label, buf);
+        uint32_t color = correct ? C_GREEN : C_DIGIT_MIN;   // 基色 = 分钟段的颜色
         lv_obj_set_style_text_color(s_panel_label, lv_color_hex(color), 0);
         lv_obj_remove_flag(s_panel_label, LV_OBJ_FLAG_HIDDEN);
         for (int k = 0; k < 3; k++) {
