@@ -52,7 +52,8 @@ void clock_ui_set_mode(bool quiz);
 /** @brief 旋钮连接状态(拔线/插上)→ 状态条①连接点变色(绿/红)。no-op 保护。 */
 void clock_ui_set_linked(bool linked);
 
-/** @brief 状态条①电量壳:按 pct 改填充宽度(<15% 转红,充电中转绿)。no-op 保护。
+/** @brief 状态条①电量壳:按 pct 改填充宽度与颜色(<15% 红 / <40% 黄 / 其余绿;
+ *  充电中整条画满转蓝)—— 规则与配色跟 launcher 对齐。no-op 保护。
  *  给家长看的仪表,不是给孩子的信息(所以可以小)。 */
 void clock_ui_set_battery(int pct, bool charging);
 

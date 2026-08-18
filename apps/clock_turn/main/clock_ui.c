@@ -416,7 +416,7 @@ static void create_status_bar(lv_obj_t *scr)
     lv_obj_set_pos(s_batt_fill, BATT_X0 + 3, BATT_Y0 + 3);
     lv_obj_set_size(s_batt_fill, BATT_W - 6, BATT_H - 6);
     lv_obj_set_style_bg_opa(s_batt_fill, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(C_BATT_OK), 0);
 
     // 长按进度条(SPEC §5.3.5):按住状态条切模式期间从 X0 长到 X1,松手不足则归零隐藏
     s_hold_bar = lv_bar_create(scr);
@@ -702,15 +702,23 @@ void clock_ui_set_linked(bool linked)
 
 void clock_ui_set_battery(int pct, bool charging)
 {
-    static int s_last_pct = -1;
-    if (!s_batt_fill || pct == s_last_pct) return;   // no-op 保护:每 10s 调一次,值多半没变
+    // no-op 保护:每 10s 调一次,值多半没变。🔴 charging 必须一起比 —— 只比 pct 的话,
+    // 插拔 USB 时 pct 多半没跳格,颜色就停在旧态(拔了还显示充电中)直到下一格才纠正。
+    static int  s_last_pct = -1;
+    static bool s_last_chg;
+    if (!s_batt_fill || (pct == s_last_pct && charging == s_last_chg)) return;
     s_last_pct = pct;
+    s_last_chg = charging;
 
-    int w = (BATT_W - 6) * pct / 100;
+    // 规则与 launcher 一致:充电时整条画满 + 蓝,免得"插着电还显示红"让家长以为没充上
+    int w = charging ? (BATT_W - 6) : (BATT_W - 6) * pct / 100;
+    uint32_t c = charging ? C_BATT_USB
+               : pct < 15 ? C_BATT_LOW
+               : pct < 40 ? C_BATT_MID
+                          : C_BATT_OK;
     bsp_display_lock(0);
     lv_obj_set_width(s_batt_fill, w < 2 ? 2 : w);
-    lv_obj_set_style_bg_color(s_batt_fill,
-        lv_color_hex(charging ? C_LINK_OK : (pct < 15 ? C_LINK_BAD : C_MUTED)), 0);
+    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(c), 0);
     bsp_display_unlock();
 }
 
@@ -743,6 +751,8 @@ void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
         }
         // 小时段染 C_DIGIT_HOUR、分钟段染 C_DIGIT_MIN(= 两针颜色各自的提亮档),让
         // 「红=时针/小时、青=分针/分钟」两条规则在钟面和读数上对上(SPEC §5.3.1 修订段)。
+        // 冒号走第三色 C_DIGIT_SEP(中性灰蓝):它跟着谁都会被读成那一段的一部分,
+        // 反而模糊两段的分界。
         // **答对庆祝态例外**:整串变绿是 §7 反馈矩阵里"对了"的信号,那 2 秒不掺别的颜色 ——
         // 关联是常态教具,庆祝是瞬时事件,别让后者被稀释。
         // ⚠️ 副作用:MODE_QUIZ 原本靠"读数常亮橙"当孩子向的模式信号(§5.3.2.1),现在读数
@@ -751,8 +761,8 @@ void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
         if (correct) {
             snprintf(buf, sizeof buf, "%d:%02d", hh, t % 60);
         } else {
-            snprintf(buf, sizeof buf, "#%06X %d#:%02d",
-                     (unsigned)C_DIGIT_HOUR, hh, t % 60);
+            snprintf(buf, sizeof buf, "#%06X %d##%06X :#%02d",
+                     (unsigned)C_DIGIT_HOUR, hh, (unsigned)C_DIGIT_SEP, t % 60);
         }
         lv_label_set_text(s_panel_label, buf);
         uint32_t color = correct ? C_GREEN : C_DIGIT_MIN;   // 基色 = 分钟段的颜色

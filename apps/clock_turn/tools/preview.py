@@ -91,6 +91,7 @@ C_HAND_HOUR = (196, 69, 58)     # ★ 时针:砖红(2026-08-10 用户改判,推�
 C_HAND_MIN  = (30, 110, 120)    # ★ 分针:深青。与时针红配对 →「红=时针/小时、青=分针/分钟」两条规则。
                                 #   钟面对比度 4.87,与时针 4.06 分量相当,谁都不压过谁。
 C_DIGIT_MIN = (127, 216, 224)   # ★ 读数的**分钟**段:C_HAND_MIN 的提亮档(底卡 6.49/6.94)
+C_DIGIT_SEP = (143, 152, 171)   # ★ 读数的**冒号**:中性灰蓝,不跟红也不跟青(理由见 tuning.h)
 C_DIGIT_HOUR = (255, 138, 122)  # ★ 读数的**小时**段:C_HAND_HOUR 的提亮档(同色相 ~6°)。
                                 #   不能直接用砖红:指针在浅色钟面、数字在深色底卡,对比度要求
                                 #   一个要 ≤0.233 亮度、一个要 ≥0.250,两区间不相交(见 tuning.h 注释)。
@@ -276,15 +277,18 @@ def draw_panel(d, t, quiz=False, reveal=False, correct=False):
     #    只剩底卡(暖橙暗底 + 橙描边)。见 SPEC §12 风险 1。
     color = C_GREEN if correct else C_DIGIT_MIN
     f = font(READOUT_H)
-    s_h, s_m = f"{hh}", f":{t % 60:02d}"
-    # 小时段单独染 C_DIGIT_HOUR(实机走 LVGL 行内着色,这里手工两段拼)。整串仍按合并宽度
-    # 居中 —— 不能各自居中,否则两段会叠在一起。
-    w_h = f.getbbox(s_h)[2] - f.getbbox(s_h)[0]
-    w_m = f.getbbox(s_m)[2] - f.getbbox(s_m)[0]
-    x0 = cx - (w_h + w_m) / 2
-    h_color = color if correct else C_DIGIT_HOUR      # 答对庆祝态整串变绿,不掺第二色(§7)
+    s_h, s_sep, s_m = f"{hh}", ":", f"{t % 60:02d}"
+    # 三段分别染色(实机走 LVGL 行内着色,这里手工拼)。整串仍按合并宽度居中 —— 不能各自
+    # 居中,否则会叠在一起。🔴 分段宽度用 getlength(前进宽度)不用 getbbox:冒号左右
+    # 有可观的 side bearing,按墨迹宽度累加会让分钟段压到冒号上。
+    w_h, w_sep, w_m = (f.getlength(x) for x in (s_h, s_sep, s_m))
+    x0 = cx - (w_h + w_sep + w_m) / 2
+    # 答对庆祝态整串变绿,不掺第二色(§7)
+    h_color = color if correct else C_DIGIT_HOUR
+    sep_color = color if correct else C_DIGIT_SEP
     d.text((x0, cy), s_h, font=f, fill=h_color, anchor="lm")
-    d.text((x0 + w_h, cy), s_m, font=f, fill=color, anchor="lm")
+    d.text((x0 + w_h, cy), s_sep, font=f, fill=sep_color, anchor="lm")
+    d.text((x0 + w_h + w_sep, cy), s_m, font=f, fill=color, anchor="lm")
 
 
 def draw_face(d, mood):

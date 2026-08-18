@@ -38,7 +38,7 @@ static bool    s_enc_have_prev;
 static int     s_enc_err_streak;
 static int     s_rescan_accum_ms;     // 距上次重扫累计的毫秒数(没插节点时 2s 周期重试,SPEC §1)
 #define BATT_POLL_MS  10000           // 状态条电量壳刷新周期
-static int     s_batt_accum_ms;
+static int     s_batt_accum_ms = BATT_POLL_MS;   // 预置满:首帧就刷一次,别让电量壳空顶 10s
 
 // t = 分钟数(0..719)。默认落在 7:30 —— 恰好是 SPEC §13 M1 的验收帧,开机免转钮即可截图自查。
 static int s_t = 7 * 60 + 30;

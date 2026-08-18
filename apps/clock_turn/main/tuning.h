@@ -102,7 +102,7 @@
 #define LINK_CX        277         // 旋钮连接点(绿=在/红=拔了)
 #define LINK_CY         21
 #define LINK_R           4
-#define BATT_X0        288         // 电量壳(本轮只画静态满格,不接 AXP192,§5.3 TODO)
+#define BATT_X0        288         // 电量壳(填充宽度/颜色由 power_monitor 每 10s 刷)
 #define BATT_Y0         15
 #define BATT_W          21
 #define BATT_H          12
@@ -156,6 +156,12 @@
                                     // 砖红搬到底卡上只有 2.16/2.31(大字下限 3.0),会把最该看清的
                                     // 小时数字变成全屏最难读的东西 —— 正好和"帮助关联"的目的相反。
                                     // 本值 4.65(普通卡)/4.97(答题卡);色相与砖红同为 ~6°,同属红色系。
+#define C_DIGIT_SEP 0x8F98AB       // ★ 读数的**冒号**:中性灰蓝,刻意既不是红也不是青 ——
+                                    // 冒号染成任一段的颜色,就会被读成那一段的一部分
+                                    // (「:30」看着像一整块青),把"红=小时/青=分钟"这条
+                                    // 规则的分界线搞模糊。它是标点不是信息,故取比两段都暗
+                                    // 一档的中性色让它退后(底卡 3.67 / 答题卡 3.93,过大字
+                                    // 3.0 线)。🔴 别直接用 C_MUTED(2.77,不够)。
 #define C_QUIZ      0xFF9A3C       // 暖橙:MODE_QUIZ 的统一强调色
 #define C_HINT      0xFFC448       // 提示弧-第1次按错(暗)
 #define C_HINT2     0xFFE08C       // 提示弧-第2次及以后(更亮)
@@ -166,6 +172,11 @@
 #define C_MUTED     0x7A8296       // 家长向图标,刻意压暗
 #define C_LINK_OK   0x78BE78
 #define C_LINK_BAD  0xCE6054
+// 电量壳配色:**与 launcher 逐值对齐**,同一块电池在两个界面上不能是两种颜色语言
+#define C_BATT_USB  0x4FB0D8       // 充电中(整条画满,见 clock_ui_set_battery)
+#define C_BATT_LOW  0xD9483A       // <15%
+#define C_BATT_MID  0xFFC75F       // <40%
+#define C_BATT_OK   0xA7C957
 
 // ── 出题(= preview.py 无对应,纯逻辑常量;SPEC §5.5)────────────────────────
 #define QUIZ_GRAIN_MIN  15         // ★ 出题粒度(分钟),决定题池大小(48 格,esp_random 抽取);
