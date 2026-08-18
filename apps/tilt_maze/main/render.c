@@ -23,7 +23,6 @@ static float s_squash;   // 撞墙挤扁脉冲(0~1),逐帧衰减
 // 地板色相 ~88°,相差 42°——够区分,但不如冷色系(~158°)分得开,肉眼需留意)。
 static const uint32_t k_floor_color  = 0xD7ECBF;   // 路面:浅草绿
 static const uint32_t k_wall_color   = 0x7FB069;   // 墙/底色:草地绿
-static const uint32_t k_home_color   = 0xC68A52;   // 家:鸟窝棕
 // 2026-07-27 放弃零失败:踩陷阱/撞怪的泛光色(危险红)。陷阱格与巡逻怪本体已改为
 // 程序化烘的尖刺精灵(见上 bake_hazard/trap),不再用纯色块——原温和配色幼儿看不出"要躲"。
 static const uint32_t k_hazard_color = 0xD63A2A;   // 失败泛光:危险红
@@ -112,6 +111,19 @@ static uint8_t        s_hazard_img[HZ_IMG * HZ_IMG * 4];
 static lv_image_dsc_t s_hazard_dsc;
 static uint8_t        s_trap_img[TP_IMG * TP_IMG * 4];
 static lv_image_dsc_t s_trap_dsc;
+
+// ── 家:小木屋精灵(2026-08-18 重画)────────────────────────────────────
+// 原来是一个纯色棕圆盘(lv_obj + radius 999):屏上就是"路面上一块棕色",幼儿认不出
+// 那是要去的地方。改成烘一张 32×32 小屋 —— 三角屋顶的剪影在 26px 上仍一眼可读
+// (候选 A 鸟窝 / C 暖心在实际尺寸下都退化成"棕环里有个点",见 tools/preview_home.py)。
+// 暖光晕烘进图里(§6.4:不每帧 alpha);实体外沿仍 ~26px,保持"陷在格子里"的观感。
+// 两张图:常态 + 亮灯态(球进到 ~2 格内换过去)。**几何完全相同,只有光的颜色/浓度变** ——
+// 换图时形状一个像素都不动,才不会有"跳一下"的位移感(§8:也不构成频闪)。
+#define HM_IMG 32
+static uint8_t        s_home_img[HM_IMG * HM_IMG * 4];
+static uint8_t        s_home_img_lit[HM_IMG * HM_IMG * 4];
+static lv_image_dsc_t s_home_dsc;
+static lv_image_dsc_t s_home_dsc_lit;
 
 // n 角尖刺星多边形(2n 顶点):偶点在外圈 r_out(尖),奇点在内圈 r_in(谷)
 static void spike_verts(float cx, float cy, float r_out, float r_in, int n, float rot,
@@ -238,6 +250,117 @@ static void bake_trap_sprite(void)
     img_desc(&s_trap_dsc, s_trap_img, TP_IMG, TP_IMG);
 }
 
+// 小屋各部件的几何(精灵中心为原点,y 向下)。改这些数先跑 tools/preview_home.py
+// 看一眼:26px 上多 1px 就是"屋顶压住门"这种量级的事。
+#define HM_R_BODY    12.8f    // 实体外沿(≈ 原圆盘直径 26)
+#define HM_R_GLOW    15.7f    // 暖光晕外沿(渐隐到 0)
+#define HM_GLOW_A    0.30f
+#define HM_GLOW_A_LIT 0.48f   // 亮灯态:光晕浓一档(唯一"变亮"的外形线索)
+#define HM_ROOF_APEX (-11.9f)
+#define HM_ROOF_EAVE (-1.2f)
+#define HM_ROOF_HALF 11.9f
+#define HM_BODY_BOT  10.6f
+#define HM_BODY_HALF 8.6f
+#define HM_DOOR_TOP  4.0f
+#define HM_DOOR_HALF 2.9f
+
+static void mix3(float *dst, const float *a, const float *b, float t)
+{
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    for (int i = 0; i < 3; i++) dst[i] = a[i] + (b[i] - a[i]) * t;
+}
+
+// 一个超采样点 → 颜色(B,G,R)+ 不透明度。与 tools/preview_home.py 的 sample_house()
+// 同式,图就是在那儿定的;两边改一边就改另一边。
+// lit = 亮灯态:只动光晕浓度、灯的颜色、门口光斑的浓度,不动任何几何。
+static void house_sample(float dx, float dy, bool lit, float *c, float *a)
+{
+    static const float glow [3] = { 0x5E, 0xB2, 0xFF };   // 暖光晕 #FFB25E
+    static const float roof [3] = { 0x33, 0x5A, 0x8A };   // 屋顶 #8A5A33
+    static const float wall [3] = { 0x5B, 0xA0, 0xD9 };   // 屋身 #D9A05B
+    static const float base [3] = { 0x3A, 0x68, 0xA1 };   // 地基 #A1683A
+    static const float white[3] = { 255, 255, 255 };
+    float lite[3]  = { 0x8A, 0xD9, 0xFF };                // 灯 #FFD98A
+    float lite2[3] = { 0xC0, 0xF0, 0xFF };                // 灯芯 #FFF0C0
+    if (lit) {                                            // 灯芯烧到近白,灯口跟着提亮
+        mix3(lite,  lite,  white, 0.42f);
+        mix3(lite2, lite2, white, 0.55f);
+    }
+    const float glow_a = lit ? HM_GLOW_A_LIT : HM_GLOW_A;
+
+    float d = sqrtf(dx * dx + dy * dy);
+    c[0] = glow[0]; c[1] = glow[1]; c[2] = glow[2];
+    *a = (d <= HM_R_BODY) ? glow_a
+       : (d >= HM_R_GLOW) ? 0.0f
+                          : glow_a * (HM_R_GLOW - d) / (HM_R_GLOW - HM_R_BODY);
+
+    if (dy >= HM_ROOF_EAVE && dy <= HM_BODY_BOT && fabsf(dx) <= HM_BODY_HALF) {
+        mix3(c, wall, base, 0.22f * (dy - HM_ROOF_EAVE) / (HM_BODY_BOT - HM_ROOF_EAVE));
+        *a = 1.0f;
+    }
+    if (dy >= 8.8f && dy <= HM_BODY_BOT && fabsf(dx) <= HM_BODY_HALF) {   // 地基压深一档
+        c[0] = base[0]; c[1] = base[1]; c[2] = base[2];
+        *a = 1.0f;
+    }
+    if (dy >= HM_ROOF_APEX && dy <= HM_ROOF_EAVE) {                       // 屋顶 + 屋檐
+        float halfw = HM_ROOF_HALF * (dy - HM_ROOF_APEX) / (HM_ROOF_EAVE - HM_ROOF_APEX);
+        if (dy >= -2.6f) halfw = HM_ROOF_HALF;
+        if (fabsf(dx) <= halfw) {
+            float lit[3];
+            mix3(lit, roof, white, 0.18f);
+            mix3(c, lit, roof, (dy - HM_ROOF_APEX) / 10.7f);
+            if (fabsf(fabsf(dx) - halfw) < 0.9f && dy < -2.6f) mix3(c, c, white, 0.30f);
+            *a = 1.0f;
+        }
+    }
+    if (dy >= HM_ROOF_EAVE && dy <= 8.8f && fabsf(fabsf(dx) - 4.6f) < 0.35f) {   // 木板缝
+        mix3(c, c, base, 0.45f);
+        *a = 1.0f;
+    }
+    if (dx * dx + (dy + 5.2f) * (dy + 5.2f) <= 2.3f * 2.3f) {             // 阁楼圆窗
+        mix3(c, lite2, lite, 0.4f);
+        *a = 1.0f;
+    }
+    if (fabsf(dx) <= HM_DOOR_HALF && dy >= HM_DOOR_TOP && dy <= HM_BODY_BOT + 0.2f) {
+        mix3(c, lite, lite2, (HM_BODY_BOT - dy) / 8.0f);                  // 门里的暖光
+        *a = 1.0f;
+    }
+    if (dy < HM_DOOR_TOP && dy >= HM_ROOF_EAVE &&                         // 拱形门楣
+        dx * dx + (dy - HM_DOOR_TOP) * (dy - HM_DOOR_TOP) <= HM_DOOR_HALF * HM_DOOR_HALF) {
+        mix3(c, lite, lite2, 0.6f);
+        *a = 1.0f;
+    }
+    // 门口洒到地上的一片暖光:整张图最"活"的一笔 —— "里面有人在等你"
+    if (dy > HM_BODY_BOT + 0.2f && dy <= 13.4f &&
+        fabsf(dx) <= HM_DOOR_HALF + (dy - HM_BODY_BOT) * 1.15f) {
+        c[0] = lite[0]; c[1] = lite[1]; c[2] = lite[2];
+        *a = (lit ? 0.78f : 0.50f) * (13.4f - dy) / 2.6f;
+    }
+}
+
+static void bake_home_sprite(uint8_t *buf, lv_image_dsc_t *dsc, bool lit)
+{
+    for (int y = 0; y < HM_IMG; y++) {
+        for (int x = 0; x < HM_IMG; x++) {
+            float acc[3] = { 0, 0, 0 }, aa = 0;
+            for (int sy = 0; sy < 4; sy++) {
+                for (int sx = 0; sx < 4; sx++) {
+                    float c[3], a;
+                    house_sample(x + (sx + 0.5f) / 4 - HM_IMG / 2.0f,
+                                 y + (sy + 0.5f) / 4 - HM_IMG / 2.0f, lit, c, &a);
+                    acc[0] += c[0] * a; acc[1] += c[1] * a; acc[2] += c[2] * a;
+                    aa += a;
+                }
+            }
+            uint8_t *o = &buf[(y * HM_IMG + x) * 4];
+            if (aa <= 0) { o[0] = o[1] = o[2] = o[3] = 0; continue; }
+            for (int i = 0; i < 3; i++) o[i] = (uint8_t)(acc[i] / aa + 0.5f);
+            o[3] = (uint8_t)(aa * 255 / 16 + 0.5f);
+        }
+    }
+    img_desc(dsc, buf, HM_IMG, HM_IMG);
+}
+
 static lv_obj_t *make_box(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color, int radius)
 {
     lv_obj_t *o = lv_obj_create(parent);
@@ -266,6 +389,8 @@ void render_init(void)
     bake_star_sprite();     // 纯 CPU,一次性,无需持锁
     bake_hazard_sprite();   // 巡逻怪红尖刺球
     bake_trap_sprite();     // 陷阱禁止标记(红圈斜杠)
+    bake_home_sprite(s_home_img,     &s_home_dsc,     false);   // 家:小木屋
+    bake_home_sprite(s_home_img_lit, &s_home_dsc_lit, true);    // 家:亮灯态
 
     bsp_display_lock(0);
 
@@ -326,12 +451,14 @@ void render_load_level(const level_t *lvl)
         lv_obj_set_pos(tr, (int)(tc.x - TP_IMG / 2), (int)(tc.y - TP_IMG / 2));
     }
 
-    // 家:暖色圆盘 + 持续脉动(直径 2×GOAL_R,略盖过 20px 家格,像陷进窝里)
+    // 家:小木屋精灵 + 持续脉动(实体略盖过 20px 家格,外圈是烘好的暖光晕)。
+    // 🔴 pivot 是精灵中心 16,不是 GOAL_R —— GOAL_R 只管到家判定,和这张图多大无关。
     vec2_t h = maze_cell_center(lvl->home);
-    s_home = make_box(s_maze, (int)(h.x - GOAL_R), (int)(h.y - GOAL_R),
-                      (int)(GOAL_R * 2), (int)(GOAL_R * 2), k_home_color, 999);
-    lv_obj_set_style_transform_pivot_x(s_home, (int)GOAL_R, 0);
-    lv_obj_set_style_transform_pivot_y(s_home, (int)GOAL_R, 0);
+    s_home = lv_image_create(s_maze);
+    lv_image_set_src(s_home, &s_home_dsc);
+    lv_obj_set_pos(s_home, (int)(h.x - HM_IMG / 2), (int)(h.y - HM_IMG / 2));
+    lv_obj_set_style_transform_pivot_x(s_home, HM_IMG / 2, 0);
+    lv_obj_set_style_transform_pivot_y(s_home, HM_IMG / 2, 0);
     render_home_excited(false);
 
     // 星(收集物):烘焙五角星双色精灵,所有世界统一;记下对象供拾取动画
@@ -431,6 +558,7 @@ void render_home_excited(bool fast)
     s_home_fast = fast;
     if (!s_home || s_anim_asleep) return;   // 休眠中只记档位,不真起动画
     bsp_display_lock(0);
+    lv_image_set_src(s_home, fast ? &s_home_dsc_lit : &s_home_dsc);   // 走近了屋里灯亮
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, s_home);

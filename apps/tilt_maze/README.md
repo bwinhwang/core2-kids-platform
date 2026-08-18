@@ -22,6 +22,7 @@ M4(四通道反馈)、M5(状态机闭环 + 关卡 + 难度档)、M7 视觉项、
 | 轴映射 | `TILT_INVERT_X=1, TILT_INVERT_Y=0, TILT_SWAP_XY=0` | 实机标定,用户确认(§8.3) |
 | 手感 | `GAIN=1800` / `DAMPING=0.90` / `VEL_MAX=220` / `DEADZONE=0.06` / `TILT_ALPHA=0.25` | 重而稳、不飘、封顶 |
 | 球/家 | `BALL_R=7` / `GOAL_R=13` / `STAR_R=7` / `WALL_RESTITUTION=0.2` / `BUMP_MIN_SPEED=35` | 16×12 网格缩放后(见下) |
+| 家精灵 | `HM_IMG=32`(实体外沿 ~26px,pivot=16,几何常量 `HM_*` 在 render.c);光晕 `HM_GLOW_A=0.30` → 亮灯态 `0.48` | 🔴 pivot 是精灵中心不是 `GOAL_R`;判定半径仍 `GOAL_R=13`,与图多大无关。两张精灵共 8KB .bss |
 | 步长 | `PHYS_DT=1/60` / `PHYS_PERIOD_MS=16`(`FREERTOS_HZ=1000`) | 固定 dt 60Hz |
 | 状态机 | `ATTRACT_TILT_THRESH=0.22` / `WIN_HOLD_MS=1800` | 免校准,`CALIB_*` 已删 |
 | idle/省电 | `PLAY_BRIGHTNESS=60` / `IDLE_BRIGHTNESS=10` / `IDLE_TIMEOUT_MS=12000` / `IDLE_WAKE_THRESH=0.12` | 打盹(机制见根 `CLAUDE.md` §7.1) |
@@ -35,6 +36,11 @@ main/  app_main.c(core2_board_init 一键 bring-up + 起状态机)
        game_state.c(60Hz 任务 + 状态机 ATTRACT/PLAY/WIN;省电托管给 core2_sleep)
        physics.c · maze.c(关卡 + BFS 校验 + 滑行碰撞)· render.c(三层 + 特效)
        feedback.c(四通道编排器)· parent_menu.c · tuning.h
+tools/ verify_mazes.py(16 关设计纪律回归)
+       preview_home.py(家图标候选离屏效果图;改 render.c 的 HM_* 几何先跑它)
+       verify_home_host.sh(把 render.c 里的 bake_home_sprite 抠到主机烘一遍,
+                           与 preview_home.py 逐像素比 —— 精灵是 B,G,R,A 字节序,
+                           颜色写成 R,G,B 屋子会整个变蓝,编译器不会说话)
 ```
 - **任务/队列**:game_task(60Hz)读 IMU→物理→碰撞→渲染→发事件;feedback/audio/haptics/ledstrip 各自事件驱动消费队列,**不阻塞 game_task**(符合 §3.2)。
 - **免校准**:无零点/校准概念,`physics_set_position` 只复位 pos/vel;低通滤波首帧样本自预热。
@@ -46,6 +52,7 @@ main/  app_main.c(core2_board_init 一键 bring-up + 起状态机)
 |---|---|---|---|
 | 音效素材 | 预制 PCM 片段(root §5.1) | **程序化合成**(sine + 包络,首尾淡入淡出);codec **整局保持 open**,空闲写静音 | 无需打包素材;root §5.1 防爆音纪律照样满足 |
 | 美术 | 烘焙精灵图(root §6.4 / SPEC §18) | **程序化色块/圆角块/圆形球**(LVGL 对象,在 root §6.2 帧预算内) | 先保证手感与帧率;精灵图是后续打磨项 |
+| 家图标 | 窝/房子 + 柔光环(§5.2/§18.3) | ✅ **小木屋精灵**(2026-08-18):32×32 ARGB8888 程序化烘(屋顶/木板缝屋身/地基/阁楼圆窗/拱门暖光/门口光斑 + 暖光晕),`lv_image` 贴一次,脉动只缩放这一张。**两态**:球进 ~2 格内(`near_level>=2`)换成亮灯态第二张精灵(灯更亮/门口光斑更浓/光晕更厚,几何不变) | 原纯色棕圆盘幼儿认不出是目标;鸟窝/暖心候选在 26px 实际尺寸下都退化成"棕环里有个点"(比图见 `tools/preview_home.py`) |
 | 收集星形状 | 五角星双色(§18.3) | ✅ **程序化烘焙精灵**(2026-07-08):init 时点内测试 + 4×4 超采样 AA 烘一张 20×20 ARGB8888 双色五角星,运行时当普通图片贴(`lv_image`),吸收动画不变 | 守 §6.4「烘好再贴」;无需打包素材 |
 | 家长菜单文案 | 中文图标+滑块(root §8) | **英文标签 + LVGL 符号** | LVGL 默认字体无 CJK 字形;要中文需配 CJK 字体 |
 | 吉祥物换帽/待机微动 | §18.4/§18.5 | **未做**(同一张程序化脸) | 锦上添花;帧预算优先给球 |

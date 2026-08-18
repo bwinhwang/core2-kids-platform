@@ -23,3 +23,6 @@ ui_wide.png
 .vscode/
 .DS_Store
 *.swp
+
+# tilt_maze tools/preview_home.py 的家图标候选效果图(同上,可再生)
+home_*.png
