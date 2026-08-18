@@ -43,7 +43,10 @@ void render_hazard_update(int idx, float cx, float cy);
 void render_ball_squash(void);
 /** @brief 撞点泛光一下(单次淡出,非频闪);(cx,cy)为屏幕坐标。 */
 void render_wall_flash(float cx, float cy);
-/** @brief 踩陷阱/撞巡逻怪泛光(与撞墙区分的独立颜色);(cx,cy)为屏幕坐标。 */
-void render_fail_flash(float cx, float cy);
+/** @brief 踩陷阱/撞巡逻怪的死亡演出(2026-08-18):球炸没 + 白闪核 + 放射碎片 +
+ *         危险红冲击环 + 世界震一下 + 四边红框告警,总时长 ~780ms。
+ *         调用方须自己定格住游戏(game_state 的 ST_FAIL / FAIL_HOLD_MS),
+ *         否则关卡会在演出中途被重置。(cx,cy)为死点屏幕坐标。 */
+void render_fail_burst(float cx, float cy);
 /** @brief 过关庆祝:少量彩纸轻柔飘落(限量,§9.5)。 */
 void render_win_celebrate(void);

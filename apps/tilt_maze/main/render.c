@@ -17,6 +17,9 @@ static lv_obj_t *s_stars[2];
 static lv_obj_t *s_hazard[MAZE_HAZARDS];   // 巡逻怪(该槽位无则 NULL,§14.2026-07-27)
 
 static float s_squash;   // 撞墙挤扁脉冲(0~1),逐帧衰减
+// 出生弹入进度(0→1):进关 / 失败重生时球从很小弹到原大。放在 ball_update 里按帧推,
+// 不用 lv_anim —— ball_update 每帧都会覆写 scale,动画写进去也会被立刻冲掉。
+static float s_spawn;
 
 // 取消按关卡换皮的多主题配色(原 4 套色相互相冲突、部分与球色几乎同色相/同亮度、
 // 肉眼会"融"进地板),统一用单一配色。2026-07-27 改用 meadow 草地色系(球色相 ~46°,
@@ -384,6 +387,8 @@ static void cb_opa(void *o, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)o, (lv
 static void cb_y(void *o, int32_t v)   { lv_obj_set_y((lv_obj_t *)o, v); }
 static void cb_delete(lv_anim_t *a)    { lv_obj_delete((lv_obj_t *)a->var); }
 
+static void fail_fx_clear(void);   // 失败演出的残留兜底(定义见文件末尾那一节)
+
 void render_init(void)
 {
     bake_star_sprite();     // 纯 CPU,一次性,无需持锁
@@ -428,6 +433,8 @@ void render_init(void)
 void render_load_level(const level_t *lvl)
 {
     bsp_display_lock(0);
+
+    fail_fx_clear();   // 上一条命的碎片/红框若还挂在 s_scr 上,别让它盖住新关卡
 
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(k_wall_color), 0);
     lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
@@ -504,12 +511,14 @@ void render_ball_set_pos(float cx, float cy)
 {
     if (!s_ball) return;
     bsp_display_lock(0);
+    lv_obj_remove_flag(s_ball, LV_OBJ_FLAG_HIDDEN);   // 上一条命被 render_fail_burst 藏起来了
     lv_obj_set_pos(s_ball, (int)(cx - BALL_R), (int)(cy - BALL_R));
     lv_obj_set_style_transform_scale_x(s_ball, LV_SCALE_NONE, 0);
     lv_obj_set_style_transform_scale_y(s_ball, LV_SCALE_NONE, 0);
     lv_obj_set_pos(s_pupil_l, 1, 1);
     lv_obj_set_pos(s_pupil_r, 1, 1);
     s_squash = 0;
+    s_spawn  = 0;      // 下次 ball_update 起弹入(ATTRACT 每帧走 set_pos,自然不会弹)
     bsp_display_unlock();
 }
 
@@ -536,6 +545,17 @@ void render_ball_update(float cx, float cy, float vx, float vy)
     else                        { ex = 1 - 0.06f * t; ey = 1 + 0.12f * t; }
     ex += 0.30f * s_squash;
     ey -= 0.30f * s_squash;
+
+    // 出生弹入:~13 帧(≈220ms)从 0.27 倍过冲到 1 倍,给重生一个"回来了"的动作
+    if (s_spawn < 1.0f) {
+        s_spawn += 0.075f;
+        if (s_spawn > 1.0f) s_spawn = 1.0f;
+        float p = 1.0f - s_spawn;
+        float k = (1.0f - p * p * p) + 0.28f * sinf(s_spawn * (float)M_PI);
+        ex *= k;
+        ey *= k;
+    }
+
     lv_obj_set_style_transform_scale_x(s_ball, (int)(LV_SCALE_NONE * ex), 0);
     lv_obj_set_style_transform_scale_y(s_ball, (int)(LV_SCALE_NONE * ey), 0);
 
@@ -639,22 +659,237 @@ void render_hazard_update(int idx, float cx, float cy)
     bsp_display_unlock();
 }
 
-void render_fail_flash(float cx, float cy)
+// ── 失败演出(2026-08-18「死得有戏」批)────────────────────────────────
+// 原来只是死点泛光 44×44 一下(320ms),而且同一帧 game_state 就把关卡重置了 ——
+// 屏上等于"球忽然回到起点",孩子分不清是自己撞了还是画面抽了。现在改成一段定格演出:
+//   T=0    球炸没 → 白闪核 + 放射碎片 + 危险红冲击环,同时整个迷宫被震了一下
+//   T=120  死点焦痕淡入(一直留到重进本关,中后段全靠它守着"我死在这儿")
+//   T=130  第二圈冲击环追出来,接住中段
+//   T=160  屏幕四边红框告警(单次淡入淡出)
+//   T=780  除焦痕外全部散尽(< FAIL_HOLD_MS 900,game_state 到点才重进本关)
+// 守 §6:全是短生命周期特效层对象,常态 loop 一个不留;时间线全在 <1s 的一次性事件里。
+// 守 §8:红框是单次起落**不是频闪**,抖动只 ~0.24s、幅度 6px,颜色仍是危险红非刺眼纯红。
+// 🔴 全部挂 s_scr 不挂 s_maze:重进本关会 lv_obj_clean(s_maze),挂那儿会被瞬间删掉
+//    (与 render_win_celebrate 同理)。
+// 🔴 节奏是 tools/preview_fail.py 横着排关键帧调出来的,别只按单帧好不好看改这些数:
+//    首版碎片 5~7px / 淡出 (1-f)²,预览上 140ms 就没了;而 380~760ms 只剩红框、整段是空的。
+//    现在的配平是——爆点(0~150)碎片+核+环,中段(150~600)第二圈环+焦痕接力,
+//    尾段(600~900)红框收+焦痕守着死点。改完重跑一遍预览再烧板。
+#define FB_SHARDS    12
+#define FB_CORE_MS   140     // 白闪核:胀开即散
+#define FB_RING_MS   420     // 冲击环(第一圈)
+#define FB_RING2_DLY 130     // 第二圈追着出,把中段填住
+#define FB_RING2_MS  460
+#define FB_RING_R0   10
+#define FB_RING_R1   52      // 环最大半径:脏矩形封顶 104×104 ≈ 10.8k px(§6.2 预算内)
+#define FB_SHARD_MS  620
+#define FB_SHAKE_MS  240     // 世界震动:阻尼正弦 2.5 个来回,末帧精确回 0
+#define FB_SHAKE_PX  6
+#define FB_SCAR_DLY  120     // 焦痕:死点留一块暗红斑,淡入后**一直留到重进本关**
+#define FB_SCAR_MS   220
+#define FB_SCAR_R    15
+#define FB_BAR_DELAY 160
+#define FB_BAR_MS    620
+#define FB_BAR_W     10
+
+static const uint32_t k_scar_color = 0x8E2519;   // 焦痕暗红:比冲击环的危险红压两档,不抢眼
+
+typedef struct { lv_obj_t *o; float x0, y0, dx, dy; } shard_t;
+static shard_t   s_shard[FB_SHARDS];
+static lv_obj_t *s_fb_ring[2], *s_fb_core, *s_fb_scar, *s_fb_bar[4];
+static int       s_fb_cx, s_fb_cy;   // 本次死点(环/核/焦痕共用,同时只可能有一场演出)
+
+static void cb_shard(void *v, int32_t t)
 {
+    shard_t *s = (shard_t *)v;
+    float f = t / 1000.0f;
+    float e = 1.0f - (1.0f - f) * (1.0f - f);   // 出膛快、末段慢,像被炸出去后减速
+    lv_obj_set_pos(s->o, (int)(s->x0 + s->dx * e), (int)(s->y0 + s->dy * e));
+    lv_obj_set_style_opa(s->o, (lv_opa_t)(255.0f * (1.0f - f)), 0);   // 线性淡出:平方掉太快,飞出去就没了
+}
+
+static void cb_ring(void *v, int32_t r)   // r = 当前半径(px),透明度跟着半径线性掉
+{
+    lv_obj_t *o = (lv_obj_t *)v;
+    lv_obj_set_size(o, r * 2, r * 2);
+    lv_obj_set_pos(o, s_fb_cx - r, s_fb_cy - r);
+    float f = (float)(r - FB_RING_R0) / (FB_RING_R1 - FB_RING_R0);
+    lv_obj_set_style_opa(o, (lv_opa_t)(230.0f * (1.0f - f)), 0);
+}
+
+static void cb_core(void *v, int32_t r)
+{
+    lv_obj_t *o = (lv_obj_t *)v;
+    lv_obj_set_size(o, r * 2, r * 2);
+    lv_obj_set_pos(o, s_fb_cx - r, s_fb_cy - r);
+    float f = (float)(r - 7) / 20.0f;
+    lv_obj_set_style_opa(o, (lv_opa_t)(255.0f * (1.0f - f)), 0);
+}
+
+// 世界震动:阻尼正弦,f=1 时振幅恰好归 0(不用再补一次"回正",少一次全屏重绘)。
+// ⚠️ 这是全片唯一会整屏重绘的一项(s_maze 一动,320×240 全脏)。§6 只给"进关/庆祝"
+// 开了整屏的口子,死亡演出按同一类事件对待:一次性、游戏已定格、≤240ms。嫌卡就把
+// FB_SHAKE_PX 设 0(cb_shake 自然退化成不动),其余演出不受影响。
+static void cb_shake(void *v, int32_t t)
+{
+    float f = t / 1000.0f;
+    lv_obj_set_x((lv_obj_t *)v, (int)(FB_SHAKE_PX * (1.0f - f) * sinf(f * 5.0f * (float)M_PI)));
+}
+
+static void cb_shard_done(lv_anim_t *a)
+{
+    shard_t *s = (shard_t *)a->var;
+    if (s->o) { lv_obj_delete(s->o); s->o = NULL; }
+}
+static void cb_ring_done(lv_anim_t *a)
+{
+    for (int i = 0; i < 2; i++) if (s_fb_ring[i] == a->var) s_fb_ring[i] = NULL;
+    lv_obj_delete((lv_obj_t *)a->var);
+}
+static void cb_core_done(lv_anim_t *a) { (void)a; if (s_fb_core) { lv_obj_delete(s_fb_core); s_fb_core = NULL; } }
+static void cb_bar_done(lv_anim_t *a)
+{
+    for (int i = 0; i < 4; i++) if (s_fb_bar[i] == a->var) s_fb_bar[i] = NULL;
+    lv_obj_delete((lv_obj_t *)a->var);
+}
+
+// 残留兜底:正常时间线(≤780ms)全部动画会自己删干净,早于 FAIL_HOLD_MS(900ms)重进本关。
+// 但 FAIL_HOLD_MS 一旦被调小,没演完的对象会挂在 s_scr 上盖住新关卡,所以进关先扫一遍。
+// 🔴 碎片动画的 var 是自己的结构体不是 lv_obj —— lv_obj_delete 只自动清"var 是本对象"
+//    的动画(lv_obj.c),这几条必须手动 lv_anim_delete,否则回调会踩已删对象。
+static void fail_fx_clear(void)
+{
+    for (int i = 0; i < FB_SHARDS; i++) {
+        lv_anim_delete(&s_shard[i], NULL);
+        if (s_shard[i].o) { lv_obj_delete(s_shard[i].o); s_shard[i].o = NULL; }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (s_fb_ring[i]) { lv_obj_delete(s_fb_ring[i]); s_fb_ring[i] = NULL; }
+    }
+    if (s_fb_core) { lv_obj_delete(s_fb_core); s_fb_core = NULL; }
+    if (s_fb_scar) { lv_obj_delete(s_fb_scar); s_fb_scar = NULL; }   // 焦痕不自删,只能在这儿清
+    for (int i = 0; i < 4; i++) {
+        if (s_fb_bar[i]) { lv_obj_delete(s_fb_bar[i]); s_fb_bar[i] = NULL; }
+    }
+    if (s_maze) { lv_anim_delete(s_maze, cb_shake); lv_obj_set_x(s_maze, 0); }
+}
+
+void render_fail_burst(float cx, float cy)
+{
+    static const uint32_t shard_cols[3] = { 0xFFD23F, 0xFFF2C8, 0xD63A2A };   // 球黄/高光/危险红
+
     bsp_display_lock(0);
-    // 挂在 s_scr(不挂 s_maze):trigger_fail 之后紧接着 render_load_level 会
-    // lv_obj_clean(s_maze) 重置本关,若挂 s_maze 这个特效会被瞬间删掉(参考
-    // render_win_celebrate 同样挂 s_scr 的理由)。
-    lv_obj_t *f = make_box(s_scr, (int)(cx - 22), (int)(cy - 22), 44, 44, k_hazard_color, 10);
-    lv_obj_set_style_opa(f, 170, 0);
+    fail_fx_clear();                 // 上一场若还没散(FAIL_HOLD_MS 被调小)先清干净
+    s_fb_cx = (int)cx;
+    s_fb_cy = (int)cy;
+
+    // 球"炸没了":重进本关时 render_ball_set_pos 会取消隐藏并弹回来
+    lv_obj_add_flag(s_ball, LV_OBJ_FLAG_HIDDEN);
+
+    // ① 焦痕:死点一块暗红斑,淡入后**不自删**——整段定格里都躺在那儿,孩子回头
+    //    看得见"我是死在这儿的"(中后段全靠它撑着,预览上 500ms 后别的都散了)。
+    //    重进本关时 fail_fx_clear 统一清掉。
+    // 🔴 第一个建 = 压在后面所有特效之下,**但仍在 s_maze 之上**。别改用
+    //    lv_obj_move_background():s_maze 也是 s_scr 的子对象且建得更早,那样会把
+    //    焦痕沉到地板底下,屏上直接看不见。z 序在这儿只由创建顺序决定。
+    s_fb_scar = make_box(s_scr, s_fb_cx - FB_SCAR_R, s_fb_cy - FB_SCAR_R,
+                         FB_SCAR_R * 2, FB_SCAR_R * 2, k_scar_color, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_opa(s_fb_scar, LV_OPA_TRANSP, 0);
     lv_anim_t a;
     lv_anim_init(&a);
-    lv_anim_set_var(&a, f);
+    lv_anim_set_var(&a, s_fb_scar);
     lv_anim_set_exec_cb(&a, cb_opa);
-    lv_anim_set_values(&a, 170, 0);
-    lv_anim_set_duration(&a, 320);
-    lv_anim_set_completed_cb(&a, cb_delete);
+    lv_anim_set_values(&a, 0, 165);
+    lv_anim_set_duration(&a, FB_SCAR_MS);
+    lv_anim_set_delay(&a, FB_SCAR_DLY);
     lv_anim_start(&a);
+
+    // ② 白闪核:死点先爆一团光(不透明小圆胀开,不是每帧 alpha 混合,§6.4)
+    s_fb_core = make_box(s_scr, s_fb_cx - 7, s_fb_cy - 7, 14, 14, 0xFFF2C8, LV_RADIUS_CIRCLE);
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, s_fb_core);
+    lv_anim_set_exec_cb(&a, cb_core);
+    lv_anim_set_values(&a, 7, 27);
+    lv_anim_set_duration(&a, FB_CORE_MS);
+    lv_anim_set_completed_cb(&a, cb_core_done);
+    lv_anim_start(&a);
+
+    // ③ 冲击环 ×2:只描边不填,扩散 + 淡出;第二圈延后出,接住中段
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *r = make_box(s_scr, s_fb_cx - FB_RING_R0, s_fb_cy - FB_RING_R0,
+                               FB_RING_R0 * 2, FB_RING_R0 * 2, k_hazard_color, LV_RADIUS_CIRCLE);
+        lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(r, i ? 3 : 4, 0);
+        lv_obj_set_style_border_color(r, lv_color_hex(k_hazard_color), 0);
+        lv_obj_set_style_border_opa(r, LV_OPA_COVER, 0);
+        lv_obj_set_style_opa(r, LV_OPA_TRANSP, 0);   // 延迟期间别提前露脸
+        s_fb_ring[i] = r;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, r);
+        lv_anim_set_exec_cb(&a, cb_ring);
+        lv_anim_set_values(&a, FB_RING_R0, FB_RING_R1);
+        lv_anim_set_duration(&a, i ? FB_RING2_MS : FB_RING_MS);
+        lv_anim_set_delay(&a, i ? FB_RING2_DLY : 0);
+        lv_anim_set_completed_cb(&a, cb_ring_done);
+        lv_anim_start(&a);
+    }
+
+    // ④ 碎片:十二个方向放射飞出(角度带随机抖动,免得每次都是同一朵花),飞着淡掉
+    for (int i = 0; i < FB_SHARDS; i++) {
+        shard_t *s = &s_shard[i];
+        int sz = 8 + (int)(esp_random() % 4);      // 8~11px:5~7px 在 320×240 上根本看不见
+        float ang = i * (2.0f * (float)M_PI / FB_SHARDS)
+                  + (esp_random() % 100) / 100.0f * 0.45f;
+        float dist = 52.0f + (esp_random() % 31);
+        s->x0 = cx - sz / 2.0f;
+        s->y0 = cy - sz / 2.0f;
+        s->dx = cosf(ang) * dist;
+        s->dy = sinf(ang) * dist;
+        s->o = make_box(s_scr, (int)s->x0, (int)s->y0, sz, sz, shard_cols[i % 3], LV_RADIUS_CIRCLE);
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, s);
+        lv_anim_set_exec_cb(&a, cb_shard);
+        lv_anim_set_values(&a, 0, 1000);
+        lv_anim_set_duration(&a, FB_SHARD_MS);
+        lv_anim_set_completed_cb(&a, cb_shard_done);
+        lv_anim_start(&a);
+    }
+
+    // ⑤ 世界震动(整屏,见 cb_shake 顶上的取舍说明)
+    if (FB_SHAKE_PX > 0) {
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, s_maze);
+        lv_anim_set_exec_cb(&a, cb_shake);
+        lv_anim_set_values(&a, 0, 1000);
+        lv_anim_set_duration(&a, FB_SHAKE_MS);
+        lv_anim_start(&a);
+    }
+
+    // ⑥ 四边红框告警:四条边条各自淡入淡出一次。
+    // 🔴 故意不用"一个全屏描边对象":那样 LVGL 会把整屏 320×240 当脏矩形,每个动画帧
+    //    整屏重绘;四条边条只脏 ~8.7k px。同理也不套一个半透明父容器(父级 opa 会逼
+    //    LVGL 开整屏中间层缓冲,150KB + 全屏合成)。
+    const int bar[4][4] = {
+        { 0, 0,                         (int)PLAY_W, FB_BAR_W },
+        { 0, (int)PLAY_H - FB_BAR_W,    (int)PLAY_W, FB_BAR_W },
+        { 0, FB_BAR_W,                  FB_BAR_W,    (int)PLAY_H - 2 * FB_BAR_W },
+        { (int)PLAY_W - FB_BAR_W, FB_BAR_W, FB_BAR_W, (int)PLAY_H - 2 * FB_BAR_W },
+    };
+    for (int i = 0; i < 4; i++) {
+        s_fb_bar[i] = make_box(s_scr, bar[i][0], bar[i][1], bar[i][2], bar[i][3],
+                               k_hazard_color, 0);
+        lv_obj_set_style_opa(s_fb_bar[i], LV_OPA_TRANSP, 0);   // 延迟期间别提前露脸
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, s_fb_bar[i]);
+        lv_anim_set_exec_cb(&a, cb_opa);
+        lv_anim_set_values(&a, 0, 225);
+        lv_anim_set_duration(&a, FB_BAR_MS / 2);
+        lv_anim_set_reverse_duration(&a, FB_BAR_MS / 2);
+        lv_anim_set_delay(&a, FB_BAR_DELAY);
+        lv_anim_set_completed_cb(&a, cb_bar_done);
+        lv_anim_start(&a);
+    }
+
     bsp_display_unlock();
 }
 

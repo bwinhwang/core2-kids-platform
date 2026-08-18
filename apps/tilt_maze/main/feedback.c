@@ -75,12 +75,22 @@ static void feedback_task(void *arg)
                 render_win_celebrate();
                 ledstrip_fx_set_base(LED_BASE_AMBIENT);   // 庆祝后回常态
                 break;
-            case EV_FAIL:
-                audio_fx_play(SND_FAIL);
+            case EV_FAIL: {
+                // 2026-08-18「死得有戏」:三条通道一起加码,和 render_fail_burst 的
+                // 视觉演出同一拍。视觉不在这里发——game_task 直调,时序才对得齐。
+                // 音:四连下行 +一记低沉闷响("掉下去"),比 SND_FAIL 那声温和下行有分量。
+                // 仍是正弦合成、无刺耳高频、无突然爆响(§8);走 play_notes 而不去改
+                // audio_fx 的 SND_FAIL —— 那是跨卡带共用词汇,别为一张卡带改重。
+                static const audio_note_t fall[] = {
+                    { 700, 60, 70 }, { 560, 60, 70 }, { 440, 60, 72 },
+                    { 330, 70, 74 }, { 150, 130, 80 },   // 合计 380ms,在 play_notes 的 ~400ms 上限内
+                };
+                audio_fx_play_notes(fall, sizeof(fall) / sizeof(fall[0]));
+                haptics_play(HAPTIC_BUMP_HARD);   // 一记重震打头(队列串行:重 → 双短)
                 haptics_play(HAPTIC_FAIL);
                 ledstrip_fx_trigger(LED_FX_FAIL);
-                render_fail_flash(m.x, m.y);
                 break;
+            }
             case EV_NEED_STARS:
                 // 到家但差星:温和"还差星星",复用已有轻柔词汇(不新增跨组件音效/震动)
                 audio_fx_play(SND_NEAR);      // 上扬叮铃:"还差一点"

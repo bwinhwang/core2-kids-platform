@@ -21,7 +21,7 @@ static const char *TAG = "game";
 // 打盹/深度省电不再是本状态机的状态:整套两级省电编排(含唤醒)由 core2_sleep 组件管,
 // 非清醒时跳过游戏逻辑即可(见 game_task)。
 // 无 CALIBRATE 态:绝对零点免校准(§20.9),"平"=与地面平,ATTRACT 触发直接进 PLAY。
-typedef enum { ST_ATTRACT, ST_PLAY, ST_WIN } state_t;
+typedef enum { ST_ATTRACT, ST_PLAY, ST_FAIL, ST_WIN } state_t;
 
 static state_t          s_state;
 static physics_t        s_phys;
@@ -64,6 +64,7 @@ static volatile int  s_play_bright = PLAY_BRIGHTNESS;
 static core2_sleep_t s_sleep;
 
 #define WIN_HOLD_FRAMES    (WIN_HOLD_MS / PHYS_PERIOD_MS)
+#define FAIL_HOLD_FRAMES   (FAIL_HOLD_MS / PHYS_PERIOD_MS)
 
 // ── 状态进入 ─────────────────────────────────────────────────────────
 static void enter_attract(void)
@@ -132,10 +133,23 @@ static void start_play(int idx)
 // 踩陷阱/撞巡逻怪:退回本关起点(2026-07-27 放弃零失败,§14 用户拍板"只退本关"而非
 // 生命值/连续惩罚)。直接复用 start_play 重进同一关:球回起点、星星重新可收、
 // 巡逻怪回端点 A、家动画重置——全部状态一次性归零,不用另写一套局部重置逻辑。
+//
+// 2026-08-18「死得有戏」:重进本关的动作推迟到 FAIL_HOLD_MS 之后,中间是 ST_FAIL 定格。
+// 原来 emit 完同一帧就 start_play,演出和重置撞在一起——屏上只剩"球忽然回到起点",
+// 输了这件事根本没被看见。ST_FAIL 期间不跑物理、不动怪,纯放演出。
 static void trigger_fail(float x, float y)
 {
-    feedback_emit_fail(x, y);
-    start_play(s_level_idx);
+    render_fail_burst(x, y);              // 视觉直调(同 render_collect_star 的先例):
+                                          // 走反馈队列会晚几毫秒,定格的第一帧就对不齐
+    feedback_emit_fail(x, y);             // 音/震/灯仍走反馈队列,不阻塞本任务
+    ledstrip_fx_set_base(LED_BASE_OFF);   // 演出期间灯带熄:紫闪 → 全黑 → 重生亮回暖色
+    s_state = ST_FAIL;
+    s_frame = 0;
+}
+
+static void fail_tick(void)
+{
+    if (++s_frame >= FAIL_HOLD_FRAMES) start_play(s_level_idx);   // 灯带基础模式也在这里恢复
 }
 
 static void enter_win(void)
@@ -380,6 +394,7 @@ static void game_task(void *arg)
             switch (s_state) {
                 case ST_ATTRACT: attract_tick(pa);   break;
                 case ST_PLAY:    if (have) play_tick(pa); break;
+                case ST_FAIL:    fail_tick();        break;
                 case ST_WIN:     win_tick();         break;
             }
         }
