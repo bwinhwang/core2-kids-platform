@@ -53,8 +53,8 @@ static void attract_tick(const imu_accel_t *acc)
     critters_idle_tick();   // 慢呼吸(内部自带 §6.5 低频分频)
 }
 
-// ── PLAY 每帧 ────────────────────────────────────────────────────────
-static void play_tick(const imu_accel_t *acc)
+// ── PLAY:一步固定 dt 物理 + 消费本步事件 ──────────────────────────────
+static void play_step(const imu_accel_t *acc)
 {
     flock_step(s_animals, ANIMAL_COUNT, acc, PHYS_DT);
 
@@ -98,7 +98,14 @@ static void play_tick(const imu_accel_t *acc)
             break;
         }
     }
+}
 
+// ── PLAY 每帧:物理补跑 steps 步,画面只更新一次 ─────────────────────────
+// (§4"渲染跟不上时逻辑可多步、画面丢帧,但手感不变";steps 由 game_task 按真实流逝
+// 时间算,见那边的 🔴 段。ST_PLAY 守卫:最后一只归家会当场翻进 ST_PARTY,余下的步不能再跑。)
+static void play_tick(const imu_accel_t *acc, int steps)
+{
+    for (int s = 0; s < steps && s_state == ST_PLAY; s++) play_step(acc);
     critters_update(s_animals, ANIMAL_COUNT);
 }
 
@@ -113,9 +120,10 @@ static int next_blueprint(void)
 }
 
 // ── PARTY 每帧:纯倒计时(视觉/音/震/灯已交给 feedback + lv_anim 异步演)──
-static void party_tick(void)
+static void party_tick(int steps)
 {
-    if (--s_party_frames > 0) return;
+    s_party_frames -= steps;    // 按补步数走,派对时长恒为 PARTY_HOLD_MS 墙钟毫秒
+    if (s_party_frames > 0) return;
 
     // 换下一张图纸(§13,依次轮换)→ 清掉旧静态层重画(scene_apply_blueprint,§6.1 允许的
     // 整屏重绘时机)→ 重散一批(§5.4,读的是刚提交的新图纸几何)→ 精灵复位 →
@@ -166,9 +174,15 @@ static void shake_check(const imu_accel_t *acc, bool have, core2_sleep_stage_t s
 // ── 主任务 ───────────────────────────────────────────────────────────
 static void game_task(void *arg)
 {
-    TickType_t last = xTaskGetTickCount();
+    TickType_t last   = xTaskGetTickCount();
+    TickType_t prev   = last;
+    int        acc_ms = 0;      // 固定步长累加器:还没被物理消费掉的真实时间
 
     for (;;) {
+        TickType_t now_t = xTaskGetTickCount();
+        int elapsed_ms   = (int)(now_t - prev) * portTICK_PERIOD_MS;
+        prev = now_t;
+
         imu_accel_t acc;
         bool have = (imu_mpu6886_read_accel(&acc) == ESP_OK);
 
@@ -185,13 +199,33 @@ static void game_task(void *arg)
         shake_check(&acc, have, stage);
 
         if (stage == CORE2_SLEEP_AWAKE) {
-            switch (s_state) {
-                case ST_ATTRACT: if (have) attract_tick(&acc); break;
-                case ST_PLAY:    if (have) play_tick(&acc);    break;
-                case ST_PARTY:   party_tick();                 break;
+            // 🔴 物理步数按**真实流逝时间**算,不是"一次循环一步"(2026-08-18 第二刀):
+            // dt 恒为 1/60 而每次循环只跑一步的话,游戏速度就等于循环的实际帧率 ——
+            // 10 只在场时渲染吃不下 16ms,循环掉到 ~45Hz = 全程 0.75 倍慢放;动物陆续
+            // 归家(active=false 既不算物理也不画)脏矩形骤减、帧率回到 60Hz,剩下几只
+            // 就"越玩越快"。补步把速度锚回墙钟:渲染慢就一次多跑几步、画面少画几帧,
+            // 手感不变(§4)。封顶 PHYS_MAX_STEPS,超出的时间直接丢掉,绝不滚雪球。
+            acc_ms += elapsed_ms;
+            int steps = acc_ms / PHYS_PERIOD_MS;
+            if (steps > PHYS_MAX_STEPS) {
+                steps  = PHYS_MAX_STEPS;
+                acc_ms = 0;
+            } else {
+                acc_ms -= steps * PHYS_PERIOD_MS;
             }
+
+            switch (s_state) {
+                case ST_ATTRACT: if (have) attract_tick(&acc);          break;
+                case ST_PLAY:    if (have && steps) play_tick(&acc, steps); break;
+                case ST_PARTY:   party_tick(steps);                     break;
+            }
+        } else {
+            acc_ms = 0;   // 休眠期间不攒时间,唤醒不补跑(否则醒来第一帧就是一段快进)
         }
-        vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
+        // 🔴 帧节拍走 core2_sleep_pace:逾期即重锚 + 丢帧。裸 vTaskDelayUntil 会攒时间
+        // 欠债,画面一变便宜(动物陆续归家 → 脏矩形骤减)就连跑上千帧还债 = 全场集体
+        // 快进(2026-08-18 本卡带实证,完整因果见 core2_sleep.h 文件头)。
+        core2_sleep_pace(&last, delay_ms);
     }
 }
 

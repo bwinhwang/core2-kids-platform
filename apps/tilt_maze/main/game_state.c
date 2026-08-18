@@ -379,7 +379,7 @@ static void game_task(void *arg)
         const imu_accel_t *pa = have ? &acc : NULL;
 
         if (s_paused) {
-            vTaskDelayUntil(&last, pdMS_TO_TICKS(PHYS_PERIOD_MS));
+            core2_sleep_pace(&last, PHYS_PERIOD_MS);
             continue;
         }
 
@@ -398,7 +398,9 @@ static void game_task(void *arg)
                 case ST_WIN:     win_tick();         break;
             }
         }
-        vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));
+        // 🔴 帧节拍走 core2_sleep_pace,不许裸 vTaskDelayUntil(逾期会攒时间欠债 →
+        // 之后连跑几百帧还债 = 全场对象突然加速,因果见 core2_sleep.h 文件头)
+        core2_sleep_pace(&last, delay_ms);
     }
 }
 

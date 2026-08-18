@@ -27,10 +27,19 @@
 //                        have ? (float[]){ax,ay,az} : NULL,
 //                        in_gameplay && have);           // 只有"正玩着"的状态可进打盹
 //     if (core2_sleep_stage(&sl) == CORE2_SLEEP_AWAKE) { ...跑应用逻辑... }
-//     vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));   // DEEP 时自动降频
+//     core2_sleep_pace(&last, delay_ms);   // 🔴 帧节拍走这个,别裸用 vTaskDelayUntil(见下)
+//
+// 🔴 **帧节拍必须走 core2_sleep_pace()**(2026-08-18 chick_pour 实证):裸用
+// `vTaskDelayUntil` 会攒时间欠债 —— 它只把 last 加一个周期,截止时刻早已过去也照样立刻
+// 返回,**迟到的时间一分不减**。渲染重的一帧、唤醒时的电源切换、LVGL 锁竞争都会让单帧
+// 超过 frame_ms;欠债攒够后画面一变便宜,循环就零延时连跑几百上千帧还债 —— 物理 dt 通常
+// 是写死的 1/60,墙钟上就是"玩到一半全场对象突然集体加速"(速度封顶封的是仿真速度,
+// 封不住一秒跑几百帧)。pace() 逾期即重锚 + 丢帧,宁可慢一点,绝不快进。
 #pragma once
 
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "motion_detect.h"
 
 #ifdef __cplusplus
@@ -95,6 +104,19 @@ int core2_sleep_feed(core2_sleep_t *s, const float accel_g[3], bool nap_eligible
 
 /** @brief 当前阶段。非 AWAKE 时应用应跳过逻辑/渲染。 */
 core2_sleep_stage_t core2_sleep_stage(const core2_sleep_t *s);
+
+/**
+ * @brief 帧节拍:睡到本帧截止时刻;**逾期则把节拍重锚到当下(丢帧,绝不快进)**。
+ *
+ * 全平台主循环唯一的收尾方式,替代裸 `vTaskDelayUntil`(理由见文件头的 🔴 段)。
+ * 逾期会按 5 秒窗口打一行 `帧超时丢帧 N 次` —— 丢帧画面上只是略顿,不打日志就永远
+ * 不知道帧预算到底超没超。
+ *
+ * @param last     节拍锚点,首次调用前置 `xTaskGetTickCount()`。
+ * @param delay_ms 本帧周期,直接传 core2_sleep_feed() 的返回值。
+ * @return true = 正常睡到点;false = 本帧逾期、已丢帧。
+ */
+bool core2_sleep_pace(TickType_t *last, int delay_ms);
 
 /** @brief 最近一帧机身动作量 |Δax|+|Δay|+|Δaz|(g),随 feed 更新。
  *  应用可复用它做自己的稳定判据(如:IMU 校准前等机身静止)。 */

@@ -24,6 +24,7 @@ static const char *TAG = "core2_sleep";
 
 #define PROBE_EVERY_MS     10000    // 读电量的节拍(I2C 几字节,10s 一次的开销可忽略)
 #define LOW_HITS_TO_SHUT   2        // 连续两次读到低电才关机(防单次坏读误关)
+#define LATE_LOG_EVERY_MS  5000     // 帧逾期丢帧的日志节流窗口
 
 static void change_stage(core2_sleep_t *s, core2_sleep_stage_t to)
 {
@@ -172,6 +173,25 @@ int core2_sleep_feed(core2_sleep_t *s, const float accel_g[3], bool nap_eligible
 }
 
 core2_sleep_stage_t core2_sleep_stage(const core2_sleep_t *s) { return s->stage; }
+
+bool core2_sleep_pace(TickType_t *last, int delay_ms)
+{
+    if (xTaskDelayUntil(last, pdMS_TO_TICKS(delay_ms)) != pdFALSE) return true;
+
+    // 逾期(本帧干的活吃掉了整个周期):迟到的时间直接丢掉,不许留在 last 里攒成欠债
+    *last = xTaskGetTickCount();
+
+    static int        late_n;
+    static TickType_t late_log;
+    late_n++;
+    if (*last - late_log >= pdMS_TO_TICKS(LATE_LOG_EVERY_MS)) {
+        ESP_LOGW(TAG, "帧超时丢帧 %d 次/%d 秒(渲染跟不上 %dms 节拍)",
+                 late_n, LATE_LOG_EVERY_MS / 1000, delay_ms);
+        late_n   = 0;
+        late_log = *last;
+    }
+    return false;
+}
 
 float core2_sleep_motion(const core2_sleep_t *s) { return s->md.motion; }
 

@@ -50,9 +50,24 @@ for (;;) {
     if (core2_sleep_stage(&sl) == CORE2_SLEEP_AWAKE) {
         // ...应用逻辑/渲染...
     }
-    vTaskDelayUntil(&last, pdMS_TO_TICKS(delay_ms));   // DEEP 时自动降频
+    core2_sleep_pace(&last, delay_ms);    // 帧节拍(DEEP 时自动降频);🔴 别裸用 vTaskDelayUntil
 }
 ```
+
+### 🔴 帧节拍必须走 `core2_sleep_pace()`(2026-08-18,chick_pour 实证)
+
+`xTaskDelayUntil` 只把 `last` 加一个周期,**截止时刻早已过去也照样立刻返回,迟到的
+时间一分不减**(IDF v6.0 `tasks.c`:`*pxPreviousWakeTime = xTimeToWake` 无条件写)。
+渲染重的一帧、唤醒时的电源切换、LVGL 锁竞争都会让单帧超过 `frame_ms`,裸用
+`vTaskDelayUntil` 就把这些迟到攒成**没有上限的时间欠债**;之后画面一变便宜(对象
+变少 / 场景切完 / 打盹醒来),循环便零延时连跑几百上千帧还债 —— 物理 dt 通常写死
+1/60,墙钟上就是「**玩到一半全场对象突然集体加速**」,持续几秒后自己恢复。速度封顶
+拦不住它(封的是仿真速度,不是每秒帧数)。
+
+`core2_sleep_pace()` 逾期即重锚 `last`(迟到时间直接丢掉,宁可慢不许快进),并按 5 秒
+窗口打一行 `W core2_sleep: 帧超时丢帧 N 次/5 秒` —— 丢帧画面上只是略顿,不打日志就
+永远不知道帧预算到底超没超。**该日志偶发正常**(派对整屏重画、唤醒那一帧);长期
+持续偏大 = 该 app 的帧预算(根 `CLAUDE.md` §6.2)真的超了,回去减脏矩形。
 
 配套 API:`core2_sleep_wake()`(触摸等非 IMU 活动立即唤醒)、`core2_sleep_kick()`
 (切关/交互事件清静止计时;桌面评估场景——单元被操作但机身不动——务必调用,否则

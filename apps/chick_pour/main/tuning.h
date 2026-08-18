@@ -78,3 +78,6 @@
 // 物理步长:SPEC §9 未列,tilt_maze 同款(60Hz 固定 dt;FREERTOS_HZ=1000 才能撑住)。
 #define PHYS_DT         (1.0f / 60.0f)
 #define PHYS_PERIOD_MS  16
+// 单次循环最多补跑几步物理(固定步长累加器,见 game_state.c game_task)。渲染跟不上时
+// 靠补步保住墙钟速度;封顶是防"越补越慢"的滚雪球——超了就把这段时间丢掉(丢帧不快进)。
+#define PHYS_MAX_STEPS  3
