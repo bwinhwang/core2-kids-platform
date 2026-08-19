@@ -37,6 +37,8 @@ RING2_DLY  = define("FB_RING2_DLY")
 RING2_MS   = define("FB_RING2_MS")
 RING_R0    = define("FB_RING_R0")
 RING_R1    = define("FB_RING_R1")
+CORE_R1    = define("FB_CORE_R1")
+SHARD_MS_  = 0
 SCAR_DLY   = define("FB_SCAR_DLY")
 SCAR_MS    = define("FB_SCAR_MS")
 SCAR_R     = define("FB_SCAR_R")
@@ -46,6 +48,24 @@ SHAKE_PX  = define("FB_SHAKE_PX")
 BAR_DELAY = define("FB_BAR_DELAY")
 BAR_MS    = define("FB_BAR_MS")
 BAR_W     = define("FB_BAR_W")
+BAR_PEAK  = define("FB_BAR_PEAK")
+
+def definef(name):
+    m = re.search(r"^#define\s+%s\s+([0-9.]+)f" % name, SRC, re.M)
+    if not m:
+        sys.exit("render.c 里找不到 #define %s" % name)
+    return float(m.group(1))
+
+CORE_HOLD  = definef("FB_CORE_HOLD")
+RING_HOLD  = definef("FB_RING_HOLD")
+SHARD_HOLD = definef("FB_SHARD_HOLD")
+BAR_IN     = definef("FB_BAR_IN")
+BAR_OUT    = definef("FB_BAR_OUT")
+
+
+def fade_after(f, hold):
+    """与 render.c 的 fade_after() 同一条:hold 之前满亮,之后才收。"""
+    return 255.0 if f <= hold else 255.0 * (1.0 - (f - hold) / (1.0 - hold))
 
 W, H, CELL = 320, 240, 20
 C_FLOOR  = (0xD7, 0xEC, 0xBF)
@@ -57,7 +77,7 @@ C_CORE   = (0xFF, 0xF2, 0xC8)
 SHARD_COLS = [C_BALL, C_CORE, C_HAZARD]
 
 DEATH = (170.0, 130.0)   # 死点:挑屏幕中偏右,能看清碎片有没有被边界吃掉
-FRAMES = [0, 60, 140, 240, 380, 500, 660, 860]
+FRAMES = [0, 80, 180, 300, 440, 600, 780, 960]
 
 
 def maze_bg():
@@ -105,7 +125,7 @@ def shock_ring(img, t, delay, dur, width):
     f = (t - delay) / dur
     r = RING_R0 + (RING_R1 - RING_R0) * f
     ring(img, DEATH[0], DEATH[1], r,
-         230 * (1 - (r - RING_R0) / (RING_R1 - RING_R0)), width)
+         fade_after((r - RING_R0) / (RING_R1 - RING_R0), RING_HOLD), width)
 
 
 def frame(t, shards):
@@ -116,7 +136,7 @@ def frame(t, shards):
     dx = 0
     if t < SHAKE_MS and SHAKE_PX > 0:
         f = t / SHAKE_MS
-        dx = int(SHAKE_PX * (1.0 - f) * math.sin(f * 5.0 * math.pi))
+        dx = int(SHAKE_PX * (1.0 - f) * math.sin(f * 4.0 * math.pi))
     shifted = Image.new("RGB", (W, H), C_WALL)
     shifted.paste(base, (dx, 0))
     img.paste(shifted.convert("RGBA"), (0, 0))
@@ -126,9 +146,9 @@ def frame(t, shards):
     # ① 白闪核(cb_core)
     if t < CORE_MS:
         f = t / CORE_MS
-        r = 7 + (27 - 7) * f
+        r = 7 + (CORE_R1 - 7) * f
         blend(img, [DEATH[0] - r, DEATH[1] - r, DEATH[0] + r, DEATH[1] + r],
-              C_CORE, 255 * (1 - (r - 7) / 20.0), radius=True)
+              C_CORE, fade_after((r - 7) / (CORE_R1 - 7), CORE_HOLD), radius=True)
 
     # ②b 焦痕:淡入后一直留着(不自删,重进本关才清)——中后段全靠它守住死点
     if t >= SCAR_DLY:
@@ -137,14 +157,14 @@ def frame(t, shards):
                     DEATH[0] + SCAR_R, DEATH[1] + SCAR_R], C_SCAR, opa, radius=True)
 
     # ② 冲击环 ×2(cb_ring;第二圈延后出,接住中段)
-    shock_ring(img, t, 0, RING_MS, 4)
-    shock_ring(img, t, RING2_DLY, RING2_MS, 3)
+    shock_ring(img, t, 0, RING_MS, 7)
+    shock_ring(img, t, RING2_DLY, RING2_MS, 5)
 
     # ③ 碎片(cb_shard)
     if t < SHARD_MS:
         f = t / SHARD_MS
         e = 1.0 - (1.0 - f) ** 2
-        opa = 255 * (1.0 - f)
+        opa = fade_after(f, SHARD_HOLD)
         for (ang, dist, sz, col) in shards:
             x = DEATH[0] - sz / 2 + math.cos(ang) * dist * e
             y = DEATH[1] - sz / 2 + math.sin(ang) * dist * e
@@ -169,7 +189,7 @@ def main():
     shards = []
     for i in range(SHARDS):
         ang = i * (2 * math.pi / SHARDS) + rnd.random() * 0.45
-        shards.append((ang, 52 + rnd.random() * 31, 8 + rnd.randrange(4), SHARD_COLS[i % 3]))
+        shards.append((ang, 62 + rnd.random() * 34, 10 + rnd.randrange(5), SHARD_COLS[i % 3]))
 
     pad, cols = 8, 4
     rows = (len(FRAMES) + cols - 1) // cols

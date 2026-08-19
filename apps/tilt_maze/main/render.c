@@ -671,26 +671,40 @@ void render_hazard_update(int idx, float cx, float cy)
 // 守 §8:红框是单次起落**不是频闪**,抖动只 ~0.24s、幅度 6px,颜色仍是危险红非刺眼纯红。
 // 🔴 全部挂 s_scr 不挂 s_maze:重进本关会 lv_obj_clean(s_maze),挂那儿会被瞬间删掉
 //    (与 render_win_celebrate 同理)。
-// 🔴 节奏是 tools/preview_fail.py 横着排关键帧调出来的,别只按单帧好不好看改这些数:
-//    首版碎片 5~7px / 淡出 (1-f)²,预览上 140ms 就没了;而 380~760ms 只剩红框、整段是空的。
-//    现在的配平是——爆点(0~150)碎片+核+环,中段(150~600)第二圈环+焦痕接力,
-//    尾段(600~900)红框收+焦痕守着死点。改完重跑一遍预览再烧板。
+// 🔴 节奏是 tools/preview_fail.py 横着排关键帧调出来的,别只按单帧好不好看改这些数。
+//    两轮踩过的坑,改之前先看懂:
+//    ① 首版碎片 5~7px / 淡出 (1-f)²,预览上 140ms 就没了;380~760ms 整段是空的只剩红框。
+//       → 加第二圈环 + 焦痕接力,碎片放大、飞远、淡出改慢。
+//    ② 2026-08-19 实机:"效果非常小,没有完全呈现"。根因是**所有元素都写成了"小的时候
+//       最亮、长大就淡没"**(环/核/碎片一律 opa ∝ 1-f)—— 屏上真正亮的只有最开始那一小团,
+//       大的部分等于没画。静态关键帧看不出这件事,横着排也看不出,因为每帧单看都"有内容"。
+//       → 现在一律 **先保持不透明地长大,最后一小段才收**(FB_*_HOLD 就是那个拐点)。
+//    改完重跑一遍预览再烧板,并且**看的是"亮的部分有多大",不是"有没有东西"**。
 #define FB_SHARDS    12
-#define FB_CORE_MS   140     // 白闪核:胀开即散
-#define FB_RING_MS   420     // 冲击环(第一圈)
-#define FB_RING2_DLY 130     // 第二圈追着出,把中段填住
-#define FB_RING2_MS  460
+#define FB_CORE_MS   190     // 白闪核:胀开即散
+#define FB_CORE_R1   32
+#define FB_CORE_HOLD 0.45f   // 之前保持全亮,之后才淡出(下同)
+#define FB_RING_MS   520     // 冲击环(第一圈)
+#define FB_RING2_DLY 170     // 第二圈追着出,把中段填住
+#define FB_RING2_MS  560
 #define FB_RING_R0   10
-#define FB_RING_R1   52      // 环最大半径:脏矩形封顶 104×104 ≈ 10.8k px(§6.2 预算内)
-#define FB_SHARD_MS  620
-#define FB_SHAKE_MS  240     // 世界震动:阻尼正弦 2.5 个来回,末帧精确回 0
-#define FB_SHAKE_PX  6
+#define FB_RING_R1   68      // 环最大直径 136px ≈ 屏高 57%;脏矩形 136×136 ≈ 18.5k px,
+                             // 只在这一次性事件里超常态预算(§6.5 特效层可掉到 15~20fps)
+#define FB_RING_HOLD 0.55f
+#define FB_SHARD_MS  700
+#define FB_SHARD_HOLD 0.55f
+#define FB_SHAKE_MS  280     // 世界震动:阻尼正弦 2 个来回(整屏重绘 ~31ms/帧,再多就采样
+                             // 不足、看着像随机抖而不是"震"),末帧精确回 0
+#define FB_SHAKE_PX  8
 #define FB_SCAR_DLY  120     // 焦痕:死点留一块暗红斑,淡入后**一直留到重进本关**
 #define FB_SCAR_MS   220
-#define FB_SCAR_R    15
-#define FB_BAR_DELAY 160
-#define FB_BAR_MS    620
-#define FB_BAR_W     10
+#define FB_SCAR_R    17
+#define FB_BAR_DELAY 150
+#define FB_BAR_MS    740     // 梯形:淡入 20% → **满亮保持 45%** → 淡出 35%
+#define FB_BAR_IN    0.20f
+#define FB_BAR_OUT   0.65f
+#define FB_BAR_PEAK  235
+#define FB_BAR_W     12
 
 static const uint32_t k_scar_color = 0x8E2519;   // 焦痕暗红:比冲击环的危险红压两档,不抢眼
 
@@ -699,22 +713,30 @@ static shard_t   s_shard[FB_SHARDS];
 static lv_obj_t *s_fb_ring[2], *s_fb_core, *s_fb_scar, *s_fb_bar[4];
 static int       s_fb_cx, s_fb_cy;   // 本次死点(环/核/焦痕共用,同时只可能有一场演出)
 
+// 0→1 的进度 f 映射成不透明度:hold 之前满亮,之后才线性收到 0。
+// 🔴 别改回 "opa ∝ 1-f":那样每个元素都是"越大越淡",亮的只剩最中间一小团(2026-08-19 实机)。
+static lv_opa_t fade_after(float f, float hold)
+{
+    if (f <= hold) return LV_OPA_COVER;
+    return (lv_opa_t)(255.0f * (1.0f - (f - hold) / (1.0f - hold)));
+}
+
 static void cb_shard(void *v, int32_t t)
 {
     shard_t *s = (shard_t *)v;
     float f = t / 1000.0f;
     float e = 1.0f - (1.0f - f) * (1.0f - f);   // 出膛快、末段慢,像被炸出去后减速
     lv_obj_set_pos(s->o, (int)(s->x0 + s->dx * e), (int)(s->y0 + s->dy * e));
-    lv_obj_set_style_opa(s->o, (lv_opa_t)(255.0f * (1.0f - f)), 0);   // 线性淡出:平方掉太快,飞出去就没了
+    lv_obj_set_style_opa(s->o, fade_after(f, FB_SHARD_HOLD), 0);
 }
 
-static void cb_ring(void *v, int32_t r)   // r = 当前半径(px),透明度跟着半径线性掉
+static void cb_ring(void *v, int32_t r)   // r = 当前半径(px);扩到大半才开始收
 {
     lv_obj_t *o = (lv_obj_t *)v;
     lv_obj_set_size(o, r * 2, r * 2);
     lv_obj_set_pos(o, s_fb_cx - r, s_fb_cy - r);
-    float f = (float)(r - FB_RING_R0) / (FB_RING_R1 - FB_RING_R0);
-    lv_obj_set_style_opa(o, (lv_opa_t)(230.0f * (1.0f - f)), 0);
+    lv_obj_set_style_opa(o, fade_after((float)(r - FB_RING_R0) / (FB_RING_R1 - FB_RING_R0),
+                                       FB_RING_HOLD), 0);
 }
 
 static void cb_core(void *v, int32_t r)
@@ -722,8 +744,20 @@ static void cb_core(void *v, int32_t r)
     lv_obj_t *o = (lv_obj_t *)v;
     lv_obj_set_size(o, r * 2, r * 2);
     lv_obj_set_pos(o, s_fb_cx - r, s_fb_cy - r);
-    float f = (float)(r - 7) / 20.0f;
-    lv_obj_set_style_opa(o, (lv_opa_t)(255.0f * (1.0f - f)), 0);
+    lv_obj_set_style_opa(o, fade_after((float)(r - 7) / (FB_CORE_R1 - 7), FB_CORE_HOLD), 0);
+}
+
+// 红框:梯形包络(淡入 → **满亮保持** → 淡出)。用自定义 cb 而不是 lv_anim 的
+// reverse:reverse 是等腰三角,峰值只有一瞬间,屏上根本来不及"看见红了"。
+// 🔴 也不能拆成两条 anim(淡入一条、淡出一条):同 var + 同 exec_cb 的第二条
+//    lv_anim_start 会把第一条直接删掉(LVGL 的去重),淡入根本不会发生。
+static void cb_bar(void *v, int32_t t)
+{
+    float f = t / 1000.0f;
+    float k = 1.0f;
+    if (f < FB_BAR_IN)       k = f / FB_BAR_IN;
+    else if (f > FB_BAR_OUT) k = 1.0f - (f - FB_BAR_OUT) / (1.0f - FB_BAR_OUT);
+    lv_obj_set_style_opa((lv_obj_t *)v, (lv_opa_t)(FB_BAR_PEAK * k), 0);
 }
 
 // 世界震动:阻尼正弦,f=1 时振幅恰好归 0(不用再补一次"回正",少一次全屏重绘)。
@@ -733,7 +767,7 @@ static void cb_core(void *v, int32_t r)
 static void cb_shake(void *v, int32_t t)
 {
     float f = t / 1000.0f;
-    lv_obj_set_x((lv_obj_t *)v, (int)(FB_SHAKE_PX * (1.0f - f) * sinf(f * 5.0f * (float)M_PI)));
+    lv_obj_set_x((lv_obj_t *)v, (int)(FB_SHAKE_PX * (1.0f - f) * sinf(f * 4.0f * (float)M_PI)));
 }
 
 static void cb_shard_done(lv_anim_t *a)
@@ -809,7 +843,7 @@ void render_fail_burst(float cx, float cy)
     lv_anim_init(&a);
     lv_anim_set_var(&a, s_fb_core);
     lv_anim_set_exec_cb(&a, cb_core);
-    lv_anim_set_values(&a, 7, 27);
+    lv_anim_set_values(&a, 7, FB_CORE_R1);
     lv_anim_set_duration(&a, FB_CORE_MS);
     lv_anim_set_completed_cb(&a, cb_core_done);
     lv_anim_start(&a);
@@ -819,7 +853,7 @@ void render_fail_burst(float cx, float cy)
         lv_obj_t *r = make_box(s_scr, s_fb_cx - FB_RING_R0, s_fb_cy - FB_RING_R0,
                                FB_RING_R0 * 2, FB_RING_R0 * 2, k_hazard_color, LV_RADIUS_CIRCLE);
         lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(r, i ? 3 : 4, 0);
+        lv_obj_set_style_border_width(r, i ? 5 : 7, 0);   // 细边在 320×240 上读不出"冲击"
         lv_obj_set_style_border_color(r, lv_color_hex(k_hazard_color), 0);
         lv_obj_set_style_border_opa(r, LV_OPA_COVER, 0);
         lv_obj_set_style_opa(r, LV_OPA_TRANSP, 0);   // 延迟期间别提前露脸
@@ -837,10 +871,10 @@ void render_fail_burst(float cx, float cy)
     // ④ 碎片:十二个方向放射飞出(角度带随机抖动,免得每次都是同一朵花),飞着淡掉
     for (int i = 0; i < FB_SHARDS; i++) {
         shard_t *s = &s_shard[i];
-        int sz = 8 + (int)(esp_random() % 4);      // 8~11px:5~7px 在 320×240 上根本看不见
+        int sz = 10 + (int)(esp_random() % 5);     // 10~14px:8~11px 实机仍嫌小
         float ang = i * (2.0f * (float)M_PI / FB_SHARDS)
                   + (esp_random() % 100) / 100.0f * 0.45f;
-        float dist = 52.0f + (esp_random() % 31);
+        float dist = 62.0f + (esp_random() % 34);
         s->x0 = cx - sz / 2.0f;
         s->y0 = cy - sz / 2.0f;
         s->dx = cosf(ang) * dist;
@@ -881,10 +915,9 @@ void render_fail_burst(float cx, float cy)
         lv_obj_set_style_opa(s_fb_bar[i], LV_OPA_TRANSP, 0);   // 延迟期间别提前露脸
         lv_anim_init(&a);
         lv_anim_set_var(&a, s_fb_bar[i]);
-        lv_anim_set_exec_cb(&a, cb_opa);
-        lv_anim_set_values(&a, 0, 225);
-        lv_anim_set_duration(&a, FB_BAR_MS / 2);
-        lv_anim_set_reverse_duration(&a, FB_BAR_MS / 2);
+        lv_anim_set_exec_cb(&a, cb_bar);
+        lv_anim_set_values(&a, 0, 1000);
+        lv_anim_set_duration(&a, FB_BAR_MS);
         lv_anim_set_delay(&a, FB_BAR_DELAY);
         lv_anim_set_completed_cb(&a, cb_bar_done);
         lv_anim_start(&a);
