@@ -40,7 +40,7 @@ void feedback_emit_step(feedback_tick_kind_t kind);
 void feedback_emit_reveal(void);
 
 /** @brief MODE_QUIZ 答对(SPEC §5.6/§6.3):上行琶音 + WIN 震动 + 彩虹迸发 + Chain RGB 彩虹一扫。
- *         画面庆祝(泛光/绿字/yay脸/12数字点亮)由 main.c 直接调 clock_ui_play_win() 处理,
+ *         画面庆祝(泛光/绿字/👍/12数字点亮)由 main.c 直接调 clock_ui_play_win() 处理,
  *         不经本队列。 */
 void feedback_emit_win(void);
 

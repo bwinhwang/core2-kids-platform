@@ -27,9 +27,13 @@ int clock_model_wrap(int t);
  * @param t             当前时间量(应已在 [0,719],否则先内部 wrap)。
  * @param delta_steps   编码器帧间 delta(可正可负;正=顺时针=时间前进,由调用方按 ENC_INVERT
  *                      决定是否先翻符号,本函数不处理方向标定)。
- * @param min_per_step  每步对应多少分钟(SPEC §5.1 定案值见 tuning.h::MIN_PER_STEP)。
+ * @param min_per_step  每步对应多少分钟(运行时值,默认见 tuning.h::MIN_PER_STEP_DEFAULT)。
  */
 int clock_model_step(int t, int delta_steps, int min_per_step);
+
+/** @brief 把 t 就近对齐到 min_per_step 的倍数(并回绕)。换步长时必须调:
+ *  否则 t 停在旧网格上(如 7:35 换成 15 步长),之后怎么转都落不到新网格 = QUIZ 死局。 */
+int clock_model_snap(int t, int min_per_step);
 
 /** @brief t → 时针角度(度,0°=12点方向,顺时针为正)。一步 2.5°,连续爬行,不吸附整点。 */
 float clock_model_hour_angle(int t);

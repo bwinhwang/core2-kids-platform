@@ -44,6 +44,12 @@ static lv_point_precise_t s_tick_pts[60][2];
 static lv_obj_t *s_num_labels[12];
 static bool       s_numbers_lit;
 
+// ── 当前小时牌(SPEC §5.9):砖红胶囊,永远停在**短针所在那一格**开头的那个数字下面。
+//    画在 12 个数字标签**之前**(z-order 更早)→ 数字压在牌子上,牌子只当底片。
+static lv_obj_t *s_hour_chip;
+static int        s_hour_num_idx = -1;      // 0..11 对应数字 1..12;-1 = 还没定位过
+static bool       s_hour_emph;
+
 // ── 庆祝泛光环(SPEC §6.3):单次柔和 opa 淡出,非连闪 ────────────────────
 static lv_obj_t *s_glow;
 
@@ -71,9 +77,11 @@ static bool       s_panel_show_last = false;
 static int        s_panel_t_last = -1;
 static bool       s_panel_quiz_last = false;
 static bool       s_panel_correct_last = false;
+static bool       s_panel_min_dim_last = false;
 
-// ── 信息区:③ 反馈脸(idle/yay/huh) ─────────────────────────────────────
-static lv_obj_t *s_face_dyn;                 // 容器:装当前表情的眼/嘴/眉,换表情时 lv_obj_clean 重建
+// ── 信息区:③ 反馈脸(idle/👍/👎) ─────────────────────────────────────
+static lv_obj_t *s_face_base;                // 圆盘:idle 钟面同色,👍 绿 / 👎 暖橙
+static lv_obj_t *s_face_dyn;                 // 容器:装当前表情的五官/拇指,换表情时 lv_obj_clean 重建
 static clock_ui_face_t s_face_last = (clock_ui_face_t)-1;   // 强制首次绘制
 
 // ── 渐进提示弧(SPEC §5.6) ───────────────────────────────────────────────
@@ -187,6 +195,18 @@ static void create_static_face(lv_obj_t *scr)
         lv_line_set_points(tick, s_tick_pts[i], 2);
     }
 
+    // 当前小时牌:先建(在数字之前 → 数字盖在它上面),位置由 clock_ui_set_time 首帧落定。
+    s_hour_chip = make_plain(scr);
+    lv_obj_set_size(s_hour_chip, HOUR_CHIP_W, HOUR_CHIP_H);
+    lv_obj_set_style_radius(s_hour_chip, HOUR_CHIP_RAD, 0);
+    lv_obj_set_style_bg_color(s_hour_chip, lv_color_hex(C_HOUR_CHIP), 0);
+    lv_obj_set_style_bg_opa(s_hour_chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_hour_chip, lv_color_hex(C_HOUR_CHIP_ED), 0);
+    lv_obj_set_style_border_width(s_hour_chip, 0, 0);
+    // 常态隐藏,只在揭晓/答对那几秒露面(SPEC §5.9):常显 = 屏上一直摆着半个答案,
+    // 孩子念牌子就够了,再不必看短针 —— 恰好废掉本批唯一的验收点(读钟面方向)。
+    lv_obj_add_flag(s_hour_chip, LV_OBJ_FLAG_HIDDEN);
+
     // 🔴 montserrat_18 的数字实高 ≈13px,才等于 preview.py 的 NUM_H=13。
     //    别退回 LV_FONT_DEFAULT —— 那是 montserrat_14,数字实高只有 ≈10px(矮 ~23%)。
     //    该字体由 sdkconfig.defaults 的 CONFIG_LV_FONT_MONTSERRAT_18 编进来。
@@ -209,6 +229,38 @@ static void create_static_face(lv_obj_t *scr)
         lv_obj_center(lbl);
         s_num_labels[n - 1] = lbl;         // 存指针:win 庆祝时临时点亮用(§6.3)
     }
+}
+
+// 12 个刻度数字的配色一处收口:常态 C_NUM / 庆祝态 C_QUIZ,但**名牌露面时它上面那个数恒为反白**
+// —— 否则庆祝那 2 秒橙字压在砖红牌子上,对比度掉到读不出来,而那正是最该看清"是几点"的时刻。
+// 🔴 反白必须跟着名牌一起来去:名牌藏起来时若还反白,那个数就成了盘面上一团几乎看不见的暖白。
+static void apply_num_colors(void)
+{
+    for (int i = 0; i < 12; i++) {
+        uint32_t c = s_numbers_lit ? C_QUIZ : C_NUM;
+        if (HOUR_CHIP_EN && s_hour_emph && i == s_hour_num_idx) {
+            c = C_HOUR_CHIP_FG;
+        }
+        lv_obj_set_style_text_color(s_num_labels[i], lv_color_hex(c), 0);
+    }
+}
+
+// 把小时牌挪到 t 所在那一格的数字下面(SPEC §5.9)。**跨小时才动**,同一小时内转分针
+// 直接 no-op —— 这是本功能的常态开销为零的原因。调用方须已持 LVGL 锁。
+static void place_hour_chip(int t)
+{
+    int n = (t / 60) % 12;
+    int idx = (n == 0) ? 11 : n - 1;        // s_num_labels[i] 装的是数字 i+1;0 点 → 数字 12
+    if (idx == s_hour_num_idx) {
+        return;
+    }
+    s_hour_num_idx = idx;
+
+    float x, y;
+    polar(CLOCK_CX, CLOCK_CY, NUM_RING_R, (float)(idx + 1) * 30.0f, &x, &y);
+    lv_obj_set_pos(s_hour_chip, (int32_t)lroundf(x) - HOUR_CHIP_W / 2,
+                                (int32_t)lroundf(y) - HOUR_CHIP_H / 2);
+    apply_num_colors();
 }
 
 // ── 庆祝泛光环(SPEC §6.3):创建于面盘之下、之前(z-order 更早),常态不可见 ─────
@@ -496,23 +548,23 @@ static void create_panel(lv_obj_t *scr)
     }
 }
 
-// ── 信息区:③ 反馈脸(idle/yay/huh,SPEC §5.3.4)────────────────────────────
+// ── 信息区:③ 反馈脸(idle/👍/👎,SPEC §5.3.4)────────────────────────────
 static void create_face_base(lv_obj_t *scr)
 {
     int cy = (Z_FACE_Y0 + Z_FACE_Y1) / 2;
 
-    lv_obj_t *base = make_plain(scr);
-    lv_obj_set_size(base, FACE_R * 2, FACE_R * 2);
-    lv_obj_set_pos(base, PANEL_CX - FACE_R, cy - FACE_R);
-    lv_obj_set_style_radius(base, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(base, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(base, lv_color_hex(C_FACE), 0);   // 脸用钟面同色
+    s_face_base = make_plain(scr);
+    lv_obj_set_size(s_face_base, FACE_R * 2, FACE_R * 2);
+    lv_obj_set_pos(s_face_base, PANEL_CX - FACE_R, cy - FACE_R);
+    lv_obj_set_style_radius(s_face_base, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(s_face_base, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s_face_base, lv_color_hex(C_FACE), 0);   // idle 脸用钟面同色
 
     s_face_dyn = make_plain(scr);
     lv_obj_set_size(s_face_dyn, FACE_R * 2, FACE_R * 2);
     lv_obj_set_pos(s_face_dyn, PANEL_CX - FACE_R, cy - FACE_R);
     lv_obj_set_style_bg_opa(s_face_dyn, LV_OPA_TRANSP, 0);
-    lv_obj_add_flag(s_face_dyn, LV_OBJ_FLAG_OVERFLOW_VISIBLE);   // 眉毛/歪头偶尔探出容器,兜底
+    lv_obj_add_flag(s_face_dyn, LV_OBJ_FLAG_OVERFLOW_VISIBLE);   // 拇指尖/袖口贴着圆边,兜底
 }
 
 // 局部坐标系:s_face_dyn 内,中心 (FACE_R, FACE_R)
@@ -541,35 +593,38 @@ static void draw_face_idle(void)
     face_draw_arc(0, 7, 28, 15, 165, 3);            // 下半弧 = 微笑
 }
 
-static void draw_face_yay(void)
+// 拇指(SPEC §5.3.4):全由圆角矩形拼成,几何 = preview.py THUMB_RECTS,局部坐标以脸心为原点、
+// 按 👍 朝向写;👎 只把 y 取反(上下翻转),两态共用一份几何。
+typedef struct { int8_t x0, y0, x1, y1, r; uint8_t part; } thumb_rect_t;
+enum { TP_CUFF, TP_HAND, TP_GAP };
+static const thumb_rect_t THUMB_RECTS[] = {
+    { -26,  -4, -17, 22, 3, TP_CUFF },   // 袖口
+    { -16,  -8,   8, 22, 7, TP_HAND },   // 手掌
+    {   0,  -8,  19,  0, 4, TP_HAND },   // 四根弯着的手指,逐根右探
+    {   0,  -1,  18,  7, 4, TP_HAND },
+    {   0,   6,  17, 14, 4, TP_HAND },
+    {   0,  13,  16, 21, 4, TP_HAND },
+    {   6,  -2,  19, -1, 0, TP_GAP  },   // 指缝(底盘色细线)
+    {   6,   5,  19,  6, 0, TP_GAP  },
+    {   6,  12,  19, 13, 0, TP_GAP  },
+    { -13, -26,  -2, -4, 5, TP_HAND },   // 大拇指
+};
+
+static void draw_thumb(bool up, uint32_t bg)
 {
-    // 大笑:眼睛弯成弧(闭眼上扬),嘴用一颗圆角"胶囊"近似张大的笑口(LVGL 无原生弦月填充,
-    // 68px 脸盘下这个简化仍读得出"大笑",与 preview.py 的 chord 填充效果等价传达)。
-    face_draw_arc(-13, -9, 12, 200, 340, 3);
-    face_draw_arc(13, -9, 12, 200, 340, 3);
+    const int s = up ? 1 : -1;
+    for (size_t i = 0; i < sizeof(THUMB_RECTS) / sizeof(THUMB_RECTS[0]); i++) {
+        const thumb_rect_t *r = &THUMB_RECTS[i];
+        int ya = r->y0 * s, yb = r->y1 * s;
+        if (ya > yb) { int tmp = ya; ya = yb; yb = tmp; }
+        uint32_t color = r->part == TP_CUFF ? C_THUMB_CUFF : r->part == TP_GAP ? bg : C_THUMB;
 
-    lv_obj_t *mouth = make_plain(s_face_dyn);
-    lv_obj_set_size(mouth, 22, 10);
-    lv_obj_set_pos(mouth, FACE_R - 11, FACE_R + 4);
-    lv_obj_set_style_radius(mouth, 5, 0);
-    lv_obj_set_style_bg_opa(mouth, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(mouth, lv_color_hex(C_HAND), 0);
-}
-
-static void draw_face_huh(void)
-{
-    face_draw_eye(-13, 2);          // 左眼略低 = 歪头
-    face_draw_eye(13, 0);
-    face_draw_arc(9, -18, 22, 180, 340, 3);          // 挑起的眉
-
-    // ⚠️ 疑问的嘴必须是波浪线,不能用小圆 —— 小圆跟"张嘴说话"太像,语音已砍,孩子会
-    // 以为"它在说话"而干等一个永远不会来的声音(SPEC §5.3.4 定案,别改回小圆嘴)。
-    static const int sx[3]     = { -11, -1, 9 };
-    static const int y_off[3]  = { 3, 7, 3 };
-    static const int start_a[3] = { 0, 180, 0 };
-    static const int end_a[3]   = { 180, 360, 180 };
-    for (int k = 0; k < 3; k++) {
-        face_draw_arc(sx[k] + 6, y_off[k] + 4, 12, start_a[k], end_a[k], 3);
+        lv_obj_t *o = make_plain(s_face_dyn);
+        lv_obj_set_pos(o, FACE_R + r->x0, FACE_R + ya);
+        lv_obj_set_size(o, r->x1 - r->x0, yb - ya);   // 与 PIL 超采样后的宽高一致
+        lv_obj_set_style_radius(o, r->r, 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(o, lv_color_hex(color), 0);
     }
 }
 
@@ -650,6 +705,25 @@ void clock_ui_set_time(int t)
     place_segment(s_hour.line, s_hour.pts,      cx, cy, hx, hy);
     place_segment(s_min.edge,  s_min.edge_pts,  cx, cy, mx, my);
     place_segment(s_min.line,  s_min.pts,       cx, cy, mx, my);
+    place_hour_chip(t);
+    bsp_display_unlock();
+}
+
+void clock_ui_set_hour_emphasis(bool on)
+{
+    if (!HOUR_CHIP_EN || on == s_hour_emph) {
+        return;
+    }
+    s_hour_emph = on;
+
+    bsp_display_lock(0);
+    lv_obj_set_style_border_width(s_hour_chip, on ? HOUR_CHIP_EDGE_W : 0, 0);
+    if (on) {
+        lv_obj_remove_flag(s_hour_chip, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_hour_chip, LV_OBJ_FLAG_HIDDEN);
+    }
+    apply_num_colors();                 // 反白跟着名牌一起来去
     bsp_display_unlock();
 }
 
@@ -722,16 +796,19 @@ void clock_ui_set_battery(int pct, bool charging)
     bsp_display_unlock();
 }
 
-void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
+// 面板的唯一实现;两个公开入口(常规 / 揭晓分拍)都收口到这里。
+static void panel_apply(bool show, int t, bool quiz_style, bool correct, bool min_dim)
 {
     if (show == s_panel_show_last && t == s_panel_t_last &&
-        quiz_style == s_panel_quiz_last && correct == s_panel_correct_last) {
+        quiz_style == s_panel_quiz_last && correct == s_panel_correct_last &&
+        min_dim == s_panel_min_dim_last) {
         return;   // no-op:三个来源(FREE 揭晓计时/QUIZ 出题/win)都可能重复调同一态
     }
     s_panel_show_last = show;
     s_panel_t_last = t;
     s_panel_quiz_last = quiz_style;
     s_panel_correct_last = correct;
+    s_panel_min_dim_last = min_dim;
 
     bsp_display_lock(0);
     // 底卡样式:MODE_QUIZ = 橙描边 + 暖橙暗底;否则普通底卡(SPEC §5.3.2.1)
@@ -765,7 +842,8 @@ void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
                      (unsigned)C_DIGIT_HOUR, hh, (unsigned)C_DIGIT_SEP, t % 60);
         }
         lv_label_set_text(s_panel_label, buf);
-        uint32_t color = correct ? C_GREEN : C_DIGIT_MIN;   // 基色 = 分钟段的颜色
+        // 基色 = 分钟段的颜色。揭晓第一拍先给暗档:先念钟点、再念分钟(SPEC §5.9)
+        uint32_t color = correct ? C_GREEN : (min_dim ? C_DIGIT_MIN_DIM : C_DIGIT_MIN);
         lv_obj_set_style_text_color(s_panel_label, lv_color_hex(color), 0);
         lv_obj_remove_flag(s_panel_label, LV_OBJ_FLAG_HIDDEN);
         for (int k = 0; k < 3; k++) {
@@ -782,9 +860,33 @@ void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
     // 不需要额外的"收尾计时器"(SPEC clock_ui_play_win 文档注释里说明的机制)。
     if (!correct && s_numbers_lit) {
         s_numbers_lit = false;
-        for (int i = 0; i < 12; i++) {
-            lv_obj_set_style_text_color(s_num_labels[i], lv_color_hex(C_NUM), 0);
-        }
+        apply_num_colors();
+    }
+    bsp_display_unlock();
+}
+
+void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct)
+{
+    panel_apply(show, t, quiz_style, correct, false);
+}
+
+void clock_ui_set_panel_reveal(int t, bool minutes_dim)
+{
+    panel_apply(true, t, false, false, minutes_dim);
+}
+
+void clock_ui_show_step(int min_per_step)
+{
+    s_panel_t_last = -2;   // 作废 panel_apply 的缓存,下一次恢复调用必定重画
+
+    char buf[8];
+    snprintf(buf, sizeof buf, "+%d", min_per_step);
+    bsp_display_lock(0);
+    lv_label_set_text(s_panel_label, buf);
+    lv_obj_set_style_text_color(s_panel_label, lv_color_hex(C_DIGIT_MIN), 0);   // 青 = 分针的事
+    lv_obj_remove_flag(s_panel_label, LV_OBJ_FLAG_HIDDEN);
+    for (int k = 0; k < 3; k++) {
+        lv_obj_add_flag(s_panel_dots[k], LV_OBJ_FLAG_HIDDEN);
     }
     bsp_display_unlock();
 }
@@ -797,12 +899,15 @@ void clock_ui_set_face(clock_ui_face_t mood)
     s_face_last = mood;
 
     bsp_display_lock(0);
-    lv_obj_clean(s_face_dyn);   // 丢掉上一个表情的眼/嘴/眉子对象,重新画(事件驱动,低频)
+    lv_obj_clean(s_face_dyn);   // 丢掉上一个表情的子对象,重新画(事件驱动,低频)
+    uint32_t bg = mood == CLOCK_UI_FACE_UP ? C_THUMB_UP_BG
+                : mood == CLOCK_UI_FACE_DOWN ? C_THUMB_DOWN_BG : C_FACE;
+    lv_obj_set_style_bg_color(s_face_base, lv_color_hex(bg), 0);
     switch (mood) {
-    case CLOCK_UI_FACE_YAY: draw_face_yay(); break;
-    case CLOCK_UI_FACE_HUH: draw_face_huh(); break;
+    case CLOCK_UI_FACE_UP:   draw_thumb(true, bg); break;
+    case CLOCK_UI_FACE_DOWN: draw_thumb(false, bg); break;
     case CLOCK_UI_FACE_IDLE:
-    default:                draw_face_idle(); break;
+    default:                 draw_face_idle(); break;
     }
     bsp_display_unlock();
 }
@@ -862,9 +967,7 @@ void clock_ui_play_win(void)
 
     // 12 刻度数字点亮(橙色),收回时机见 clock_ui_set_panel() 的说明
     s_numbers_lit = true;
-    for (int i = 0; i < 12; i++) {
-        lv_obj_set_style_text_color(s_num_labels[i], lv_color_hex(C_QUIZ), 0);
-    }
+    apply_num_colors();
 
     // 单次柔和泛光:opa 255→0 淡出,不重复(根 CLAUDE.md §8 光敏安全:非连闪)
     lv_obj_set_style_border_opa(s_glow, LV_OPA_COVER, 0);

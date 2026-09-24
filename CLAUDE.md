@@ -37,7 +37,7 @@
 | **tilt_maze** 倾斜迷宫 | ota_0 | IMU MPU6886 | ✅ 实机验收(核心 M0–M5 + 打盹 + 难度批:陷阱/巡逻怪/绕圈怪)+ **死亡演出批**(ST_FAIL 定格 + 碎片/双环/焦痕/世界震/红框告警)→ 🔄 2026-08-19 量级修正(淡出曲线写反致「效果非常小」),**待烧录点检** | `apps/tilt_maze/SPEC.md` + `README.md` |
 | **busy_knobs** 旋钮忙碌台 | ota_1 | 8Encoder | ✅ 实机验收通过 | `apps/busy_knobs/README.md` |
 | **chick_pour** 小鸡回窝 | ota_2 | IMU MPU6886(零外设) | ✅ 实机验收(P1 群体手感 + P2 归家闭环 + P3 打磨:睡醒/彩蛋/家加强批/图标)→ 🔄 **后院图纸批**(图纸 A/C/B 轮换、摇一摇升彩蛋为功能键、美术批 φ22 主角):2026-08-10 实机"只有一张后院"的根因(校验器 flood fill 提前退出 → 三张全回退图纸 A)已修,**待烧录点检** | `apps/chick_pour/SPEC.md` + `README.md` |
-| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | ✅ 实机验收。**平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2):M0+M1 + 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)+ 降难度批(时针砖红 / 步进 5→15 分钟) | `apps/clock_turn/SPEC.md` |
+| **clock_turn** 转转钟 | ota_3 | Chain Encoder(UART) | ✅ 实机验收。**平台第一张教育卡带**(部分豁免游戏铁律,见 SPEC §0.2):M0+M1 + 双模式批(信息区/模式开关/随机出题/提示弧,**已砍语音**)+ 降难度批(时针砖红 / 步进 5→15 分钟)→ 🔄 **读表方向修复批**(2026-08-24 实机:半点一律念成"6点" —— 长针穿过数字 6、而短针够不到任何数字;修法 = 当前小时牌(**按键揭晓才露面,不常显**——常显等于把半个答案摆屏上,验收点作废)+ 数字改红色系 + 揭晓分两拍,SPEC §5.9),**待烧录点检** | `apps/clock_turn/SPEC.md` + `TEACHING.md`(家长向教案) |
 | **chain_lab** 抓娃娃机 | ota_4 | Chain Enc/Joy(UART) | ✅ 实机验收(v2.1 深度分层 + v2.2 趣味批 + 摇杆回中修复) | `apps/chain_lab/SPEC.md` + `README.md` |
 | **launcher** 卡带机选择页 | factory | — | ✅ 实机验收;⚠️ 图标分支有死代码待清理(peekaboo/feed_monster/busy_bus,无害) | `launcher/README.md` |
 

@@ -3,7 +3,7 @@
 // 按事件只刷各自的小脏矩形(根 CLAUDE.md §6 渲染红线)。
 //
 // 2026-08-06 大改版(SPEC §5.3):新增信息区三子区(①状态条两位模式开关+长按切换、
-// ②数字钟按需揭晓/题面、③反馈脸 idle/yay/huh)+ 渐进提示弧。语音整章作废,
+// ②数字钟按需揭晓/题面、③反馈脸 idle/👍/👎)+ 渐进提示弧。语音整章作废,
 // 原"轻触播报"输入路径删除。
 #pragma once
 
@@ -16,8 +16,8 @@ extern "C" {
 
 typedef enum {
     CLOCK_UI_FACE_IDLE = 0,   // 平静微笑(常态,两模式共同基线)
-    CLOCK_UI_FACE_YAY,        // 大笑 + 眼睛弯成弧(QUIZ 答对)
-    CLOCK_UI_FACE_HUH,        // 歪头 + 波浪嘴(QUIZ 按键但未到位)
+    CLOCK_UI_FACE_UP,         // 绿底 👍(QUIZ 答对)
+    CLOCK_UI_FACE_DOWN,       // 暖橙底 👎(QUIZ 按键但未到位)
 } clock_ui_face_t;
 
 /** @brief 状态条①长按满 `MODE_HOLD_MS` 时触发一次(在 LVGL 任务上下文调用,勿在其中
@@ -38,6 +38,9 @@ void clock_ui_create(void);
  * @brief 按 t(0..719 分钟)更新两针指向。t 与上次相同时是no-op(不碰 LVGL)。
  *        只移动两针 + 中心帽所在的小容器,不碰静态层,脏矩形≈两针包围盒(SPEC §6.2)。
  *        内部自己 bsp_display_lock/unlock。
+ *        ⚠️ 顺带把"当前小时牌"挪到短针所在的那一格(SPEC §5.9)——**只在跨小时那一帧**
+ *        才真的动,同一小时内转分针是零额外开销。牌子平时是藏着的(见
+ *        clock_ui_set_hour_emphasis),这里只负责"藏着也保持在正确位置"。
  */
 void clock_ui_set_time(int t);
 
@@ -67,8 +70,31 @@ void clock_ui_set_battery(int pct, bool charging);
  */
 void clock_ui_set_panel(bool show, int t, bool quiz_style, bool correct);
 
+/**
+ * @brief ② MODE_FREE 按键揭晓专用(SPEC §5.9 分两拍):内容同 clock_ui_set_panel(true,t,false,false),
+ *        只是分钟段可以先压暗。
+ * @param minutes_dim true = 第一拍(只有小时段是亮的);false = 第二拍(整串正常配色)。
+ *                    🔴 两拍字串完全相同,只换分钟段颜色 —— 保证读数不会在第二拍整体跳位。
+ */
+void clock_ui_set_panel_reveal(int t, bool minutes_dim);
+
+/** @brief 子区②临时显示「+N」(N = 新步长分钟数),给家长确认 BtnB 长按切到了哪档。
+ *         不自带计时:到期由调用方用 clock_ui_set_panel 恢复(本函数会让下一次
+ *         clock_ui_set_panel 必定重画,不被 no-op 保护吞掉)。 */
+void clock_ui_show_step(int min_per_step);
+
 /** @brief ③ 反馈脸表情切换(SPEC §5.3.4)。no-op 保护(与上次相同不重画)。 */
 void clock_ui_set_face(clock_ui_face_t mood);
+
+/**
+ * @brief 当前小时牌的总闸(SPEC §5.9):揭晓 / 答对期间**整枚牌子露面**(含反白数字与亮边),
+ *        让**钟面上的那个数**和**读数里的小时段**在同一瞬间一起亮 —— 这一下同时性就是
+ *        "钟面 ↔ 口语"的绑定动作。
+ *        🔴 牌子**不常显**:常显等于把半个答案一直摆在屏上,孩子念牌子就够了、再不必看短针,
+ *        而"他到底会不会读短针"正是本卡带唯一要验的事(读钟面方向,§5.9)。
+ *        no-op 保护。HOUR_CHIP_EN=0 时整个函数是空操作。
+ */
+void clock_ui_set_hour_emphasis(bool on);
 
 /**
  * @brief 渐进提示弧(SPEC §5.6/§6.1):走时针角、半径 HINT_R,从当前 t 指向目标 t

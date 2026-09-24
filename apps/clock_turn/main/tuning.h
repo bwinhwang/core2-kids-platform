@@ -11,14 +11,18 @@
 // ── 编码器标定(SPEC.md §10;preview.py 不含输入,这两条另加)───────────────
 #define ENC_DEG_PER_STEP   15      // 事实值(apps/chain_lab/main/tuning.h 已验证),24 格/圈,仅存档
 #define ENC_INVERT          0      // ★ 实机标定:顺时针转=时间前进;若反了改 1
-#define MIN_PER_STEP        15     // 核心手感常量:编码器 1 格 = 15 分钟(SPEC §5.1 推导)
+#define MIN_PER_STEP_DEFAULT 15    // 核心手感常量:编码器 1 格 = 多少分钟(SPEC §5.1 推导);NVS 无值时用它
                                     // 🔴 2026-08-10 由 5 改 15(用户实机反馈:对幼儿难度偏高)。
-                                    // 后果:t 恒为 15 的倍数 → 分针只落 12/3/6/9 四个位置
-                                    // (整点/一刻/半点/三刻),题池 144→48。三个教学知识点
-                                    // 全部保留(推导见 SPEC §5.1 修订行)。
-                                    // 🔴 改这个数**必须**同步改 QUIZ_GRAIN_MIN(见其注释),
-                                    // 否则会出到永远转不到的题 —— 那是本卡带唯一能造出"死局"
-                                    // 的方式,直接违反零失败。
+                                    // 15 → t 恒为 15 的倍数 → 分针只落 12/3/6/9 四个位置。
+                                    // 2026-09-23 起运行时可调:BtnB 长按在 MIN_PER_STEP_CHOICES 里循环,
+                                    // 存 NVS(namespace NVS_NS / key NVS_KEY_STEP),重启保留。
+#define MIN_PER_STEP_CHOICES(X) X(5) X(10) X(15) X(30)   // X-macro:main.c 据此建表 + 编译期断言
+                                    // 🔴 每一档**必须**整除 QUIZ_GRAIN_MIN(main.c 有编译期断言):
+                                    // 否则会出到永远转不到的题 —— 本卡带唯一能造出"死局"的方式,
+                                    // 直接违反零失败。
+#define NVS_NS          "clock_turn"
+#define NVS_KEY_STEP    "min_step"
+#define STEP_TOAST_MS   1500        // 切步长后子区②显示「+15」多久(家长确认用),之后回原面板
 
 // ── 钟面几何(= tools/preview.py CLOCK_CX/CY/R)────────────────────────────
 #define CLOCK_CX     101
@@ -48,13 +52,36 @@
                                     // (=montserrat_14,数字实高仅 ≈10px,矮 ~23%)。字体档位在
                                     // sdkconfig.defaults 启用,用处在 clock_ui.c::create_static_face
 
+// ── 🔴 当前小时牌(HOUR_CHIP,2026-08-24 读表方向修复批,SPEC §5.9)──────────
+// 实机症状:整点孩子念得对(7:00 → "7点"),半点一律念成"6点" —— 因为 7:30 时**长针正好
+// 穿过数字 6**,而短针 42px 根本够不到数字圈(内沿 57.5),屏上"指着某个数字"的针**只有
+// 分针一根**。孩子的规则是"念被针指着的那个数",在整点上恰好蒙对。修法 = 给短针所在的
+// 那一格挂一块砖红名牌(数字反白),把"该念哪个数"变成屏上看得见的东西。
+// 🔴 名牌**只在按键揭晓/答对那几秒露面**,不常显:常显 = 屏上一直摆着半个答案,孩子念牌子
+//    就够了、再不必看短针,而"他会不会读短针"正是要验的那件事。露面时机跟读数同一道闸门
+//    (§5.4),流程 = 先看针猜 → 按键 → 牌子与读数小时段同时亮,猜测的含金量才保得住。
+#define HOUR_CHIP_EN     1         // ★ 脚手架总开关:孩子熟练后置 0 → 回到真挂钟的干净盘面。
+                                    // 与时针砖红(§5.3.1)是同一类"本机有、真表没有"的线索,
+                                    // 迁移验证方式相同:拿家里挂钟问一次"现在几点"。
+#define HOUR_CHIP_W     27         // 名牌宽:要装得下两位数「12」(montserrat_18 约 20px)+ 留白;
+                                    // 🔴 上限由刻度内沿倒推 —— NUM_RING_R + W/2 必须 < TICK_MAJ_IN
+#define HOUR_CHIP_H     20
+#define HOUR_CHIP_RAD   10         // = H/2 → 胶囊形(圆角矩形退化成两端半圆)
+#define HOUR_CHIP_EDGE_W 3         // 露面期间再描一圈亮边(向内画,不撑大几何)
+#define C_HOUR_CHIP     0xC4453A   // = C_HAND_HOUR 砖红:名牌与时针同色 = "这块牌子是短针的"
+#define C_HOUR_CHIP_FG  0xFFF6EC   // 名牌上的数字(暖白,砖红底上对比度 4.64,小字 4.5 线之上)
+#define C_HOUR_CHIP_ED  0xFFD9C8   // 亮边色:揭晓/答对时钟面这个数与读数里的小时段同时亮
+
 // ── 配色(= preview.py 对应 RGB 元组的十六进制值,仅列 M0+M1 用到的几个)───
 #define C_BG        0x2C303E       // 背景(preview.py C_BG = (44,48,62))
 #define C_FACE      0xF5E8CD       // 钟面底色(preview.py C_FACE)
 #define C_RIM       0xC69E62       // 钟面外框(preview.py C_RIM)
 #define C_TICK_MAJ  0x8C643C       // 整点刻度(preview.py C_TICK_MAJ)
 #define C_TICK_MIN  0xC4AC8A       // 分刻度(preview.py C_TICK_MIN)
-#define C_NUM       0x705030       // 刻度数字(preview.py C_NUM)
+#define C_NUM       0x8A4038       // 刻度数字。★ 2026-08-24 由暖棕 0x705030 移到**红色系**
+                                    // (亮度不变,对比度仍 5.97,只换色相):12 个数字是**时针的
+                                    // 刻度**,不是中性装饰 —— 让它们和砖红时针同族,是"数字归短针
+                                    // 管"这条规则的最便宜的一条冗余(SPEC §5.9)。
 #define C_HAND      0x3A322C       // 中心帽 + 反馈脸五官,暖黑(preview.py C_HAND/C_CAP)。
                                     // 中心帽是两针交汇处,**刻意保持中性**:染成任一针的颜色都会
                                     // 让那根针在根部"长出去一截",破坏长短这条几何线索。
@@ -88,7 +115,7 @@
 #define Z_STAT_Y1       40
 #define Z_PANEL_Y0      46         // ② 数字钟(孩子向):读数,信息区主角
 #define Z_PANEL_Y1     148
-#define Z_FACE_Y0      154         // ③ 反馈脸(孩子向):idle/yay/huh
+#define Z_FACE_Y0      154         // ③ 反馈脸(孩子向):idle/👍/👎
 #define Z_FACE_Y1      234
 
 #define CARD_R           8         // 子区圆角(= preview.py CARD_R)
@@ -133,9 +160,20 @@
 #define PANEL_BORDER     3         // MODE_QUIZ 态橙描边宽度(占内腔)
 #define READOUT_HOLD_MS 4000       // ★ MODE_FREE 按键揭晓后停留多久再淡回占位点(§5.4);
                                     // 留太久 = 又变回实时读数
+#define REVEAL_STAGGER_MS 700      // ★ 揭晓分两拍:先只亮小时段、分钟段压暗,过 700ms 才转亮
+                                    // (SPEC §5.9)。教的是**读表顺序**:先看短针念钟点,
+                                    // 再看长针念分钟 —— 孩子当前的错法正是跳过第一步。
+                                    // 🔴 只压颜色不改字串,读数整串宽度/居中位置全程不变,
+                                    // 否则第二拍会整体"跳"一下,比不分拍更糟。
 
 // ── ③ 反馈脸(= preview.py FACE_R,原"说话脸"改名,SPEC §5.3.4)─────────────
 #define FACE_R          34         // 半径→φ68,压着根 CLAUDE.md §8 的 64px 线,不许再小
+// 答对/按错换成拇指(2026-09-23):圆盘颜色 + 拇指朝向两条线索各自独立可读。
+// 👎 刻意用暖橙不用红 —— 红读作"错/危险",这里要传达的只是"还没到"。
+#define C_THUMB_UP_BG   0x6EC878   // = C_GREEN,与答对时读数变绿同一个"对了"
+#define C_THUMB_DOWN_BG 0xE8803C
+#define C_THUMB         0xFFF6EC   // 拇指(暖白)
+#define C_THUMB_CUFF    0x3A322C   // 袖口 = C_HAND
 
 // ── 渐进提示弧(= preview.py HINT_R/HINT_ARC_W1/W2,SPEC §5.6/§6.1)────────
 // 🔴 走时针角不是分针角:分针角 60min 一个周期会把跨小时的差值算错,时针角 720min 内
@@ -146,6 +184,8 @@
 
 // ── 配色(信息区/两模式/提示弧,= preview.py 对应 RGB 元组;M0+M1 已有的色见上)──
 #define C_DIGIT_MIN 0x7FD8E0       // ★ 读数的**分钟**段:浅青 = C_HAND_MIN 的提亮档(底卡 6.49/6.94)
+#define C_DIGIT_MIN_DIM 0x4E8C96   // ★ 揭晓第一拍的分钟段(底卡 2.80,明显退后但仍在):
+                                    // 不是隐藏 —— 隐藏会让整串重新居中,位置一跳(见 REVEAL_STAGGER_MS)
 #define C_DIGIT_HOUR 0xFF8A7A      // ★ 读数的**小时**部分:珊瑚红 = C_HAND_HOUR 的提亮档,
                                     // 让孩子把"红色的数字"和"红色的针"连起来(2026-08-10 用户要求)。
                                     // 🔴 为什么不直接用 C_HAND_HOUR(0xC4453A):指针画在**浅色钟面**上、
@@ -180,7 +220,7 @@
 
 // ── 出题(= preview.py 无对应,纯逻辑常量;SPEC §5.5)────────────────────────
 #define QUIZ_GRAIN_MIN  30         // ★ 出题粒度(分钟),决定题池大小(24 格,esp_random 抽取);
-                                    // 🔴 **必须是 MIN_PER_STEP 的整数倍**:t 只能落在 MIN_PER_STEP
+                                    // 🔴 **必须是每一档步长的整数倍**:t 只能落在步长
                                     // 的倍数上,更细的题目永远转不到 = 死局(§5.5)。
                                     // 2026-08-10 随 MIN_PER_STEP 5→15 同步改(题池 144→48,
                                     // 平均转动量 ~36 格→~12 格);2026-08-18 再提到 30(题池 48→24,

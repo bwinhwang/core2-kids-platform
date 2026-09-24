@@ -18,4 +18,6 @@ idf_component_register(
         haptics                   # 震动马达(反馈通道,§7)
         audio_fx                  # 音效引擎(反馈通道,§7;2026-08-06 语音作废后唯一的声音来源)
         app_slot                 # 多 App 分区自举(回 launcher)
+        kv_store                 # NVS:分针步长持久化
+        touch_btns               # BtnB 长按 = 切分针步长
 )

@@ -55,3 +55,9 @@ int clock_model_next_quiz(int current_t, int last_target, int grain_min, uint32_
     // 理论上走不到这里(pool_n>=2 时至多排掉 2 个候选);兜底返回起点候选。
     return clock_model_wrap(idx * grain_min);
 }
+
+int clock_model_snap(int t, int min_per_step)
+{
+    t = clock_model_wrap(t);
+    return clock_model_wrap((t + min_per_step / 2) / min_per_step * min_per_step);
+}

@@ -1,7 +1,7 @@
 // clock_turn —— 转转钟(教育卡带,ota_3)入口
 //
 // 本里程碑范围 = SPEC.md M2+M4(2026-08-06 语音整章作废后重排,见 SPEC §13):
-//   信息区三子区(状态条①两位模式开关+长按切换、数字钟按需揭晓/题面、反馈脸 idle/yay/huh)
+//   信息区三子区(状态条①两位模式开关+长按切换、数字钟按需揭晓/题面、反馈脸 idle/👍/👎)
 //   + 整齐时刻吸附三通道 + MODE_QUIZ 随机出题闭环(判定/渐进提示弧/庆祝/自动下一题)。
 // M0(单元 bring-up)+ M1(静态钟面+两针联动)已完成,本次在其上扩建。
 // M5(静止思考宽限/放弃演示/连续使用提醒)、M6(单元容错完整 UI)本批未做,见 SPEC §13。
@@ -19,7 +19,9 @@
 #include "core2_board.h"
 #include "core2_sleep.h"
 #include "imu_mpu6886.h"
+#include "kv_store.h"
 #include "power_monitor.h"
+#include "touch_btns.h"
 
 #include "chain_bus.h"
 #include "unit_chain_encoder.h"
@@ -45,6 +47,17 @@ static int s_t = 7 * 60 + 30;
 
 static core2_sleep_t s_sleep;
 
+// ── 分针步长(1 格 = 多少分钟):BtnB 长按循环切换,存 NVS ──────────────────
+#define STEP_ITEM(n) n,
+#define STEP_REM(n)  + (QUIZ_GRAIN_MIN % (n))
+static const int s_step_choices[] = { MIN_PER_STEP_CHOICES(STEP_ITEM) };
+#define STEP_CHOICE_N ((int)(sizeof(s_step_choices) / sizeof(s_step_choices[0])))
+_Static_assert((0 MIN_PER_STEP_CHOICES(STEP_REM)) == 0,
+               "MIN_PER_STEP_CHOICES 每一档都必须整除 QUIZ_GRAIN_MIN,否则出到转不到的题");
+static int           s_min_per_step = MIN_PER_STEP_DEFAULT;
+static volatile bool s_step_cycle_req;   // touch_btns 任务里置位,game_task 消费
+static int           s_step_toast_ms;
+
 // ── 旋钮中心键:边沿检测 + 去抖(SPEC §5.4;参考 apps/chain_lab 的 press_edge 套路)────
 static bool s_btn_prev;
 static int  s_btn_debounce_remain_ms;
@@ -55,9 +68,11 @@ typedef enum { APP_MODE_FREE = 0, APP_MODE_QUIZ } app_mode_t;
 static app_mode_t          s_mode = APP_MODE_FREE;
 static volatile bool       s_mode_toggle_req;
 
-// MODE_FREE:按键揭晓当前读数,持续 READOUT_HOLD_MS 后淡回占位点
+// MODE_FREE:按键揭晓当前读数,持续 READOUT_HOLD_MS 后淡回占位点。
+// 揭晓分两拍(SPEC §5.9):先只亮小时段,REVEAL_STAGGER_MS 后分钟段才转亮。
 static bool s_reveal_active;
 static int  s_reveal_remain_ms;
+static int  s_reveal_stagger_ms;
 
 // MODE_QUIZ:随机出题 + 判定 + 渐进提示 + 庆祝自动下一题
 static int  s_quiz_target = -1;
@@ -134,15 +149,14 @@ static bool poll_encoder(void)
 #endif
 
     int old_t = s_t;
-    s_t = clock_model_step(s_t, delta, MIN_PER_STEP);
+    s_t = clock_model_step(s_t, delta, s_min_per_step);
     ESP_LOGD(TAG, "encoder raw=%d delta=%+d  t: %d(%d:%02d) -> %d(%d:%02d)",
              v, delta, old_t, old_t / 60, old_t % 60, s_t, s_t / 60, s_t % 60);
     return true;
 }
 
 // 转一格的落格反馈:按 t%15==0 分三档(整点/半点/一刻)+ 普通格(SPEC §5.2/§7)。
-// ⚠️ 2026-08-10 MIN_PER_STEP=15 后 t 恒是 15 的倍数 → FEEDBACK_TICK_PLAIN 这一档**不再可达**,
-//    每一格都落在整齐时刻上,区分退化成整点/半点/一刻三级。分支照留(步长调细即恢复)。
+// ⚠️ 步长 15/30 时 t 恒是 15 的倍数 → FEEDBACK_TICK_PLAIN 不可达;步长 5/10 时才会出现。
 static void emit_step_feedback(void)
 {
     feedback_tick_kind_t kind = FEEDBACK_TICK_PLAIN;
@@ -166,7 +180,81 @@ static void start_new_quiz_question(void)
     clock_ui_set_panel(true, s_quiz_target, true, false);
     clock_ui_set_face(CLOCK_UI_FACE_IDLE);
     clock_ui_set_hint(s_t, s_quiz_target, 0);   // 新题:提示弧隐藏,按错次数清零
+    clock_ui_set_hour_emphasis(false);          // 上一题答对时点亮的小时牌亮边收回
     ESP_LOGI(TAG, "MODE_QUIZ 出题:目标 %d:%02d", s_quiz_target / 60, s_quiz_target % 60);
+}
+
+// 收回揭晓态:面板回占位点 + 钟面小时牌的亮边灭掉,两处必须成对(它俩是同一个
+// "钟面↔读数"绑定动作的两头,只灭一头会留下一块无来由亮着的牌子)。
+static void end_reveal(void)
+{
+    s_reveal_active = false;
+    s_reveal_stagger_ms = 0;
+    clock_ui_set_panel(false, 0, false, false);
+    clock_ui_set_hour_emphasis(false);
+}
+
+// 子区②回到当前模式该有的样子(步长提示结束时用)
+static void restore_panel(void)
+{
+    if (s_mode == APP_MODE_QUIZ) {
+        clock_ui_set_panel(true, s_quiz_target, true, s_quiz_win_active);
+    } else {
+        clock_ui_set_panel(false, 0, false, false);
+    }
+}
+
+static int load_min_per_step(void)
+{
+    int32_t v = MIN_PER_STEP_DEFAULT;
+    if (kv_store_init(NVS_NS) == ESP_OK) {
+        kv_store_get_i32(NVS_KEY_STEP, &v, MIN_PER_STEP_DEFAULT);
+    }
+    for (int i = 0; i < STEP_CHOICE_N; i++) {
+        if (s_step_choices[i] == v) {
+            return (int)v;
+        }
+    }
+    ESP_LOGW(TAG, "NVS 里的步长 %ld 不在可选档内,用默认 %d", (long)v, MIN_PER_STEP_DEFAULT);
+    return MIN_PER_STEP_DEFAULT;
+}
+
+// BtnB 长按:步长切到下一档 + 存 NVS + 子区②短暂显示「+N」
+static void apply_step_cycle(void)
+{
+    int next = s_step_choices[0];
+    for (int i = 0; i < STEP_CHOICE_N; i++) {
+        if (s_step_choices[i] == s_min_per_step) {
+            next = s_step_choices[(i + 1) % STEP_CHOICE_N];
+            break;
+        }
+    }
+    s_min_per_step = next;
+    esp_err_t err = kv_store_set_i32(NVS_KEY_STEP, next);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "步长写 NVS 失败(%s),本次开机内仍生效", esp_err_to_name(err));
+    }
+
+    s_t = clock_model_snap(s_t, s_min_per_step);
+    if (s_reveal_active) {
+        s_reveal_active = false;
+        s_reveal_stagger_ms = 0;
+        clock_ui_set_hour_emphasis(false);
+    }
+    if (s_mode == APP_MODE_QUIZ && s_quiz_miss > 0 && !s_quiz_win_active) {
+        clock_ui_set_hint(s_t, s_quiz_target, (s_quiz_miss <= 1) ? HINT_ARC_W1 : HINT_ARC_W2);
+    }
+    core2_sleep_kick(&s_sleep);
+    clock_ui_show_step(s_min_per_step);
+    s_step_toast_ms = STEP_TOAST_MS;
+    feedback_emit_mode_switch();
+    ESP_LOGI(TAG, "分针步长 -> %d 分钟/格(已存 NVS)", s_min_per_step);
+}
+
+static void on_btn_b_long(void *user)
+{
+    (void)user;
+    s_step_cycle_req = true;
 }
 
 // ── 模式切换(状态条①长按 1.5s 触发,SPEC §5.3.5)────────────────────────
@@ -178,7 +266,10 @@ static void apply_mode_switch(void)
     // 例:长按切模式发生在"MODE_FREE 刚按键揭晓、4s 计时还没到"或"MODE_QUIZ 刚答对、
     // 2s 庆祝还没完"这两个窗口内,不清零就会在切走后的下一帧复现上一个模式的收尾动作。
     s_reveal_active = false;
+    s_reveal_stagger_ms = 0;
     s_quiz_win_active = false;
+    s_step_toast_ms = 0;
+    clock_ui_set_hour_emphasis(false);
 
     s_mode = (s_mode == APP_MODE_FREE) ? APP_MODE_QUIZ : APP_MODE_FREE;
     core2_sleep_kick(&s_sleep);
@@ -207,11 +298,18 @@ static void on_mode_toggle_from_ui(void *user)
 static void handle_button_press(void)
 {
     core2_sleep_kick(&s_sleep);   // 桌面玩法坑(CLAUDE.md §10):按键也要 kick
+    s_step_toast_ms = 0;          // 按键接管子区②,步长提示让位(否则到期会把揭晓/题面抹掉)
 
     if (s_mode == APP_MODE_FREE) {
+        // 揭晓期内再按一次只刷新计时(SPEC §5.4),**不重放两拍** —— 否则连按会让分钟段
+        // 反复暗一下亮一下,像闪屏。
+        if (!s_reveal_active) {
+            s_reveal_stagger_ms = REVEAL_STAGGER_MS;
+        }
         s_reveal_active = true;
         s_reveal_remain_ms = READOUT_HOLD_MS;
-        clock_ui_set_panel(true, s_t, false, false);
+        clock_ui_set_panel_reveal(s_t, s_reveal_stagger_ms > 0);   // 第一拍:只有小时段是亮的
+        clock_ui_set_hour_emphasis(true);        // 钟面上那个数同时亮 → 绑定的那一下
         clock_ui_set_face(CLOCK_UI_FACE_IDLE);
         feedback_emit_reveal();
         return;
@@ -225,14 +323,15 @@ static void handle_button_press(void)
         s_quiz_win_active = true;
         s_quiz_win_remain_ms = WIN_HOLD_MS;
         clock_ui_set_panel(true, s_quiz_target, true, true);   // 数字变绿
-        clock_ui_set_face(CLOCK_UI_FACE_YAY);
+        clock_ui_set_face(CLOCK_UI_FACE_UP);
         clock_ui_set_hint(s_t, s_quiz_target, 0);               // 答对:提示弧隐藏
+        clock_ui_set_hour_emphasis(true);                       // 钟面上"是几点"跟着亮
         clock_ui_play_win();
         feedback_emit_win();
         ESP_LOGI(TAG, "MODE_QUIZ 答对!");
     } else {
         s_quiz_miss++;
-        clock_ui_set_face(CLOCK_UI_FACE_HUH);
+        clock_ui_set_face(CLOCK_UI_FACE_DOWN);
         int width = (s_quiz_miss <= 1) ? HINT_ARC_W1 : HINT_ARC_W2;
         clock_ui_set_hint(s_t, s_quiz_target, width);
         feedback_emit_miss();
@@ -294,6 +393,16 @@ static void game_task(void *arg)
                 s_mode_toggle_req = false;
                 apply_mode_switch();
             }
+            if (s_step_cycle_req) {
+                s_step_cycle_req = false;
+                apply_step_cycle();
+            }
+            if (s_step_toast_ms > 0) {
+                s_step_toast_ms -= delay_ms;
+                if (s_step_toast_ms <= 0) {
+                    restore_panel();
+                }
+            }
 
             bool moved = poll_encoder();
             if (moved) {
@@ -304,6 +413,12 @@ static void game_task(void *arg)
                     core2_sleep_wake(&s_sleep);
                 }
                 emit_step_feedback();
+                // 🔴 一转就收回揭晓:面板显示的是**按键那一刻**的读数,再转下去就跟指针
+                // 对不上了 —— 教具上"数字和指针说的不是同一个时刻"比没有数字更糟。
+                // 顺带守住 §5.3.2.1(数字只在主动请求时出现,不许变成跟手的实时读数)。
+                if (s_reveal_active) {
+                    end_reveal();
+                }
                 // MODE_QUIZ 提示弧已浮现时跟手持续重算(目标没变,当前 t 变了,SPEC §5.6)
                 if (s_mode == APP_MODE_QUIZ && s_quiz_miss > 0 && !s_quiz_win_active) {
                     int width = (s_quiz_miss <= 1) ? HINT_ARC_W1 : HINT_ARC_W2;
@@ -318,10 +433,15 @@ static void game_task(void *arg)
 
             // MODE_FREE 揭晓倒计时:到点淡回占位点(SPEC §5.4)
             if (s_reveal_active) {
+                if (s_reveal_stagger_ms > 0) {
+                    s_reveal_stagger_ms -= delay_ms;
+                    if (s_reveal_stagger_ms <= 0) {
+                        clock_ui_set_panel_reveal(s_t, false);   // 第二拍:分钟段转亮
+                    }
+                }
                 s_reveal_remain_ms -= delay_ms;
                 if (s_reveal_remain_ms <= 0) {
-                    s_reveal_active = false;
-                    clock_ui_set_panel(false, 0, false, false);
+                    end_reveal();
                 }
             }
 
@@ -364,11 +484,16 @@ void app_main(void)
     // ② 反馈编排器(SPEC §7;需在 audio_fx/haptics/ledstrip_fx 之后,core2_board_init 已代管)
     ESP_ERROR_CHECK(feedback_init());
 
+    s_min_per_step = load_min_per_step();
+    s_t = clock_model_snap(s_t, s_min_per_step);
+    ESP_LOGI(TAG, "分针步长 %d 分钟/格(BtnB 长按切换)", s_min_per_step);
+
     // ③ 钟面 UI:静态层画一次(圆盘+边框+60刻度+12数字+信息区三底卡),两针落在默认 t(7:30);
     //    默认 MODE_FREE、占位点、脸 idle、连接点先设绿(还没探测,试探到再校正)。
     clock_ui_create();
     clock_ui_set_time(s_t);
     clock_ui_set_mode_toggle_cb(on_mode_toggle_from_ui, NULL);
+    touch_btns_bind(TOUCH_BTN_B, TOUCH_BTN_LONG, on_btn_b_long, NULL);
 
     // ④ 省电托管(CLAUDE.md §7)。SPEC §11:本卡带"静止思考期"宽限本批未接入(见 M5),
     //    用默认参数即可,MODE_QUIZ 长时间不动手会照常打盹——已知取舍,非缺陷。

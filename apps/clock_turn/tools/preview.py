@@ -7,6 +7,7 @@
 2026-08-06 大改版(语音整章作废,两模式落地):
   - 状态条①从纯展示徽标升级成两位模式开关(人形=FREE/屏形=QUIZ)+ 长按进度条(SPEC §5.3.5)
   - 反馈脸(原"说话脸")三态改成 idle/yay/huh,talk 态删除(SPEC §5.3.4)
+    (2026-09-23 yay/huh 再换成绿底 👍 / 暖橙底 👎,mood 名改 up/down)
   - 渐进提示弧改走时针角、半径 50(SPEC §5.6/§6.1),不再是分针角/半径 84
   - 数字钟揭晓机制从"轻触整齐时刻播报"改成"按键揭晓"(SPEC §5.4)
 
@@ -38,6 +39,13 @@ HAND_EDGE = 2                          # 指针描边(钟面色):6:30 这类两�
 TICK_OUT, TICK_MAJ_IN, TICK_MIN_IN = 89, 79, 82
 NUM_RING_R, NUM_H = 64, 13             # 刻度数字圈(装饰级,不受 64px 约束)
 
+# 🔴 当前小时牌(= tuning.h HOUR_CHIP_*,SPEC §5.9,2026-08-24 读表方向修复批)
+# 实机症状:7:30 / 8:30 孩子一律念"6点" —— 长针正好穿过数字 6,而短针(42)根本够不到
+# 数字圈内沿(57.5),屏上"指着某个数字"的针只有分针一根。名牌把"该念哪个数"画出来。
+HOUR_CHIP_EN = True                    # ★ 脚手架总开关:孩子熟练后关掉 → 回真挂钟的干净盘面
+HOUR_CHIP_W, HOUR_CHIP_H, HOUR_CHIP_RAD = 27, 20, 10
+HOUR_CHIP_EDGE_W = 3                   # 揭晓/答对时的亮边(向内画,不撑大几何)
+
 # 🔴 渐进提示弧(SPEC §5.6/§6.1):2026-08-06 改走**时针角**,半径 50。
 #    分针角每 60 分钟绕回一次——目标差 95 分钟时分针弧只显示 35 分(吞掉"多一圈"),
 #    给的是错的提示;时针角 = t*0.5° 在 720 分钟周期内单调不重复,唯一编码 Δt。
@@ -55,7 +63,7 @@ CARD_R = 8                             # 子区圆角
 
 Z_STAT = (INFO_X0,   6, INFO_X1,  40)  # ① 状态条(**家长向**):两位模式开关 + 连接 + 电量
 Z_TIME = (INFO_X0,  46, INFO_X1, 148)  # ② 数字钟(孩子向):读数 = 信息区主角
-Z_FACE = (INFO_X0, 154, INFO_X1, 234)  # ③ 反馈脸(孩子向):idle/yay/huh
+Z_FACE = (INFO_X0, 154, INFO_X1, 234)  # ③ 反馈脸(孩子向):idle/👍/👎
 
 # 🔴 读数尺寸由**最宽读数**倒推,不是拍脑袋:「12:45」5 字符,还要塞进子区②的内腔
 #    (半宽 57、答题态再减 3px 描边)。放大 READOUT_H 或加宽钟面前必先重算,
@@ -66,6 +74,20 @@ PANEL_HW, PANEL_HH = 57, 51            # = 子区② 的半宽/半高
 PANEL_BORDER = 3                       # 答题态橙描边宽度(占内腔)
 
 FACE_R = 34                            # 反馈脸半径 → φ68,压着根 CLAUDE.md §8 的 64px 线
+# 拇指几何(= clock_ui.c THUMB_RECTS):(x0, y0, x1, y1, 圆角, 部件),脸心为原点、按 👍 朝向;
+# 👎 只把 y 取反。全用圆角矩形 = LVGL 一个 lv_obj 一块,两边同构。
+THUMB_RECTS = (
+    (-26,  -4, -17, 22, 3, "cuff"),    # 袖口
+    (-16,  -8,   8, 22, 7, "hand"),    # 手掌
+    (  0,  -8,  19,  0, 4, "hand"),    # 四根弯着的手指,逐根右探
+    (  0,  -1,  18,  7, 4, "hand"),
+    (  0,   6,  17, 14, 4, "hand"),
+    (  0,  13,  16, 21, 4, "hand"),
+    (  6,  -2,  19, -1, 0, "gap"),     # 指缝(底盘色细线)
+    (  6,   5,  19,  6, 0, "gap"),
+    (  6,  12,  19, 13, 0, "gap"),
+    (-13, -26,  -2, -4, 5, "hand"),    # 大拇指
+)
 
 # ── 状态条①:两位模式开关几何(SPEC §5.3.5,2026-08-06 新增)────────────
 MODE_SLOT_W, MODE_SLOT_H = 27, 20
@@ -82,7 +104,11 @@ C_FACE      = (245, 232, 205)
 C_RIM       = (198, 158, 98)
 C_TICK_MAJ  = (140, 100, 60)
 C_TICK_MIN  = (196, 172, 138)
-C_NUM       = (112, 80, 48)
+C_NUM       = (138, 64, 56)     # ★ 2026-08-24 由暖棕 (112,80,48) 移到红色系:亮度不变(对比度
+                                #   仍 5.97)、只换色相 —— 12 个数字是**时针的刻度**,归短针管。
+C_HOUR_CHIP    = (196, 69, 58)  # = C_HAND_HOUR:名牌与时针同色 = "这块牌子是短针的"
+C_HOUR_CHIP_FG = (255, 246, 236)   # 名牌上的数字(暖白,砖红底对比度 4.64)
+C_HOUR_CHIP_ED = (255, 217, 200)   # 亮边:揭晓/答对时与读数的小时段同时亮
 C_HAND      = (58, 50, 44)      # 中心帽 + 反馈脸五官(暖黑)。中心帽刻意保持中性:染成任一针的
                                 #   颜色都会让那根针在根部"长出去一截",破坏长短这条几何线索。
 C_HAND_HOUR = (196, 69, 58)     # ★ 时针:砖红(2026-08-10 用户改判,推翻 §5.3.1「两针同色」,
@@ -91,6 +117,7 @@ C_HAND_HOUR = (196, 69, 58)     # ★ 时针:砖红(2026-08-10 用户改判,推�
 C_HAND_MIN  = (30, 110, 120)    # ★ 分针:深青。与时针红配对 →「红=时针/小时、青=分针/分钟」两条规则。
                                 #   钟面对比度 4.87,与时针 4.06 分量相当,谁都不压过谁。
 C_DIGIT_MIN = (127, 216, 224)   # ★ 读数的**分钟**段:C_HAND_MIN 的提亮档(底卡 6.49/6.94)
+C_DIGIT_MIN_DIM = (78, 140, 150)   # ★ 揭晓第一拍的分钟段(底卡 2.80):先念钟点再念分钟
 C_DIGIT_SEP = (143, 152, 171)   # ★ 读数的**冒号**:中性灰蓝,不跟红也不跟青(理由见 tuning.h)
 C_DIGIT_HOUR = (255, 138, 122)  # ★ 读数的**小时**段:C_HAND_HOUR 的提亮档(同色相 ~6°)。
                                 #   不能直接用砖红:指针在浅色钟面、数字在深色底卡,对比度要求
@@ -100,6 +127,10 @@ C_QUIZ      = (255, 154, 60)    # 暖橙:QUIZ 模式的统一强调色
 C_HINT      = (255, 196, 72)    # 提示弧-第1次按错(暗)
 C_HINT2     = (255, 224, 140)   # 提示弧-第2次及以后(更亮)
 C_GREEN     = (110, 200, 120)   # QUIZ 答对:数字变绿
+C_THUMB_UP_BG   = C_GREEN          # 👍 圆盘:与读数变绿同一个"对了"
+C_THUMB_DOWN_BG = (232, 128, 60)   # 👎 圆盘:暖橙不用红 —— 要传达的只是"还没到"
+C_THUMB         = (255, 246, 236)  # 拇指(暖白)
+C_THUMB_CUFF    = (58, 50, 44)     # 袖口 = C_HAND
 C_CARD      = (56, 62, 80)      # 子区底卡(比背景略亮,划出信息区)
 C_CARD_Q    = (74, 54, 36)      # QUIZ 态的子区②(暖橙暗调)
 C_CARD_HI   = (78, 86, 108)     # 状态条①选中槽的底(比 C_CARD 更亮一档)
@@ -139,8 +170,16 @@ def font(px):
     return ImageFont.truetype(F_BOLD, int(px * SS / 0.73))
 
 
-def draw_face_static(d, t):
-    """静态层:圆盘 + 边框 + 60 刻度 + 12 数字。实机进场画一次,之后永不重画。"""
+def draw_face_static(d, t, lit=False, emph=False):
+    """静态层:圆盘 + 边框 + 60 刻度 + 12 数字 + 当前小时牌。
+
+    实机里前三样进场画一次永不重画;**小时牌只在跨小时那一帧动**(SPEC §5.9),
+    同一小时内转分针零开销,所以它仍然算不上"每帧的活"。
+    @param lit   庆祝态:12 个数字点亮成橙(§6.3)。戴着名牌的那个**不跟着变橙** ——
+                 橙字压在砖红牌子上对比度掉到读不出,而那正是最该看清"是几点"的 2 秒。
+    @param emph  揭晓/答对:名牌**露面**并描一圈亮边,与读数里的小时段同时亮(绑定动作)。
+                 emph=False 时整枚名牌连同反白一起藏起来 —— 常显 = 答案常驻,见 §5.9。
+    """
     cx, cy, r = CLOCK_CX * SS, CLOCK_CY * SS, CLOCK_R * SS
     d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=C_FACE,
               outline=C_RIM, width=5 * SS)
@@ -152,10 +191,24 @@ def draw_face_static(d, t):
         x2, y2 = pol(cx, cy, TICK_OUT * SS, deg)
         d.line((x1, y1, x2, y2), fill=C_TICK_MAJ if maj else C_TICK_MIN,
                width=(5 if maj else 2) * SS)
+
+    hour_n = (t // 60) % 12 or 12          # 短针所在那一格开头的那个数字(0 点 → 12)
+    chip_on = HOUR_CHIP_EN and emph
+    if chip_on:
+        hx, hy = pol(cx, cy, NUM_RING_R * SS, hour_n * 30)
+        box = (hx - HOUR_CHIP_W / 2 * SS, hy - HOUR_CHIP_H / 2 * SS,
+               hx + HOUR_CHIP_W / 2 * SS, hy + HOUR_CHIP_H / 2 * SS)
+        d.rounded_rectangle(box, radius=HOUR_CHIP_RAD * SS, fill=C_HOUR_CHIP,
+                            outline=C_HOUR_CHIP_ED if emph else None,
+                            width=HOUR_CHIP_EDGE_W * SS if emph else 0)
     f = font(NUM_H)
     for n in range(1, 13):
         x, y = pol(cx, cy, NUM_RING_R * SS, n * 30)
-        d.text((x, y), str(n), font=f, fill=C_NUM, anchor="mm")
+        if chip_on and n == hour_n:
+            color = C_HOUR_CHIP_FG
+        else:
+            color = C_QUIZ if lit else C_NUM
+        d.text((x, y), str(n), font=f, fill=color, anchor="mm")
 
 
 def draw_hand(d, deg, length, width, color):
@@ -252,7 +305,7 @@ def draw_status(d, quiz, linked=True, batt=1.0, hold_frac=0.0):
         d.rounded_rectangle((hx0, hy0, cur, hy1), radius=2 * SS, fill=C_QUIZ)
 
 
-def draw_panel(d, t, quiz=False, reveal=False, correct=False):
+def draw_panel(d, t, quiz=False, reveal=False, correct=False, min_dim=False):
     """② 数字钟读数 —— 🔴 **不是实时的**,与按键动作同门槛(SPEC §5.3.2.1/§5.4)。
 
     ⚠️ 横排「7:30」是标准写法。竖排(小时一行、分钟一行)读起来像三位数 730,试过,不行。
@@ -275,7 +328,7 @@ def draw_panel(d, t, quiz=False, reveal=False, correct=False):
     hh = (t // 60) or 12
     # 🔴 读数恒为「红小时 + 青分钟」→ MODE_QUIZ 原本的"读数常亮橙"孩子向模式信号没了,
     #    只剩底卡(暖橙暗底 + 橙描边)。见 SPEC §12 风险 1。
-    color = C_GREEN if correct else C_DIGIT_MIN
+    color = C_GREEN if correct else (C_DIGIT_MIN_DIM if min_dim else C_DIGIT_MIN)
     f = font(READOUT_H)
     s_h, s_sep, s_m = f"{hh}", ":", f"{t % 60:02d}"
     # 三段分别染色(实机走 LVGL 行内着色,这里手工拼)。整串仍按合并宽度居中 —— 不能各自
@@ -294,39 +347,30 @@ def draw_panel(d, t, quiz=False, reveal=False, correct=False):
 def draw_face(d, mood):
     """③ 反馈脸 —— 把只有声/震/灯的事变成看得见的事(2026-08-06 由"说话脸"改名)。
 
-    idle 平静微笑(常态,两模式共同基线)/ yay 大笑+眼睛弯成弧(QUIZ 答对)/
-    huh 歪头+波浪嘴(QUIZ 按键但未到位)。原 talk(张嘴说话)态随语音一起删除。
+    idle 平静微笑(常态,两模式共同基线)/ up 绿底 👍(QUIZ 答对)/
+    down 暖橙底 👎(QUIZ 按键但未到位)。圆盘颜色与拇指朝向是两条独立线索(SPEC §5.3.4)。
     """
     cx, cy = PANEL_CX * SS, (Z_FACE[1] + Z_FACE[3]) / 2 * SS
     r = FACE_R * SS
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=C_FACE)   # 脸用钟面同色
 
-    if mood == "yay":                                          # 大笑:眼睛弯成弧
-        for ex in (-13, 13):
-            d.arc((cx + ex * SS - 6 * SS, cy - 13 * SS, cx + ex * SS + 6 * SS, cy - 3 * SS),
-                  start=200, end=340, fill=C_HAND, width=3 * SS)
-        d.chord((cx - 15 * SS, cy - 2 * SS, cx + 15 * SS, cy + 18 * SS),
-                start=10, end=170, fill=C_HAND)
+    if mood in ("up", "down"):
+        bg = C_THUMB_UP_BG if mood == "up" else C_THUMB_DOWN_BG
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=bg)
+        s = 1 if mood == "up" else -1
+        colors = {"cuff": C_THUMB_CUFF, "hand": C_THUMB, "gap": bg}
+        for x0, y0, x1, y1, rad, part in THUMB_RECTS:
+            ya, yb = sorted((y0 * s, y1 * s))
+            d.rounded_rectangle((cx + x0 * SS, cy + ya * SS, cx + x1 * SS, cy + yb * SS),
+                                radius=rad * SS, fill=colors[part])
         return
 
-    for ex in (-13, 13):                                       # 眼(idle/huh 共用圆眼)
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=C_FACE)   # idle 脸用钟面同色
+    for ex in (-13, 13):
         er = 4.5 * SS
-        ey = cy - 9 * SS + (2 * SS if mood == "huh" and ex < 0 else 0)   # huh 歪头:左眼略低
+        ey = cy - 9 * SS
         d.ellipse((cx + ex * SS - er, ey - er, cx + ex * SS + er, ey + er), fill=C_HAND)
-
-    if mood == "huh":
-        d.arc((cx - 2 * SS, cy - 24 * SS, cx + 20 * SS, cy - 12 * SS),   # 挑起的眉
-              start=180, end=340, fill=C_HAND, width=3 * SS)
-        # ⚠️ 疑问的嘴必须是波浪线,不能用小圆 —— 小圆跟"张嘴说话"太像,语音已砍,
-        #    孩子会以为"它在说话"而干等一个永远不会来的声音(§5.3.4 定案)。
-        for k, sx in enumerate((-11, -1, 9)):
-            d.arc((cx + sx * SS, cy + (7 if k % 2 else 3) * SS,
-                   cx + (sx + 12) * SS, cy + (15 if k % 2 else 11) * SS),
-                  start=180 if k % 2 else 0, end=360 if k % 2 else 180,
-                  fill=C_HAND, width=3 * SS)
-    else:                                                       # idle:平静微笑
-        d.arc((cx - 14 * SS, cy - 2 * SS, cx + 14 * SS, cy + 16 * SS),
-              start=15, end=165, fill=C_HAND, width=3 * SS)
+    d.arc((cx - 14 * SS, cy - 2 * SS, cx + 14 * SS, cy + 16 * SS),
+          start=15, end=165, fill=C_HAND, width=3 * SS)
 
 
 def draw_hint_arc(d, hour_now, hour_target, width):
@@ -356,15 +400,16 @@ def finish(img, path):
 
 
 def frame(t, path, *, quiz_target=None, miss=0, win=False, mood="idle",
-          linked=True, reveal=False, hold_frac=0.0):
+          linked=True, reveal=False, hold_frac=0.0, min_dim=False):
     """通用出图:两模式共用一套渲染管线。
 
     @param t            当前钟面 t(分钟)。
     @param quiz_target  非 None = MODE_QUIZ,值 = 目标时刻;None = MODE_FREE。
     @param miss         MODE_QUIZ 按错次数(0=无提示弧,1=细弧,>=2=粗亮弧)。
     @param win          是否画庆祝(单次泛光 + 12 数字点亮 + 面板变绿)。
-    @param mood         反馈脸表情:idle / yay / huh。
+    @param mood         反馈脸表情:idle / up / down。
     @param reveal       MODE_FREE 是否处于"按键揭晓"态(显示当前读数)。
+    @param min_dim      揭晓第一拍(分钟段压暗、只有小时段亮;SPEC §5.9)。
     @param hold_frac    状态条①长按进度 0..1(0 = 不画进度条)。
     """
     img, d = new_canvas()
@@ -374,12 +419,9 @@ def frame(t, path, *, quiz_target=None, miss=0, win=False, mood="idle",
             g = 70 + k * 30
             d.ellipse((cx - rr * SS, cy - rr * SS, cx + rr * SS, cy + rr * SS),
                       outline=(g + 100, g + 55, 70), width=4 * SS)
-    draw_face_static(d, t)
-    if win:                                     # 刻度数字点亮
-        f = font(NUM_H)
-        for n in range(1, 13):
-            x, y = pol(cx, cy, NUM_RING_R * SS, n * 30)
-            d.text((x, y), str(n), font=f, fill=C_QUIZ, anchor="mm")
+    # 小时牌的亮边 = "钟面上的这个数"与"读数里的小时段"同时亮的那一下(SPEC §5.9):
+    # 揭晓期间 与 答对庆祝期间各一次。
+    draw_face_static(d, t, lit=win, emph=(reveal or win))
     quiz = quiz_target is not None
     if quiz and miss > 0 and not win:
         ha, _ = hand_angles(t)
@@ -397,8 +439,9 @@ def frame(t, path, *, quiz_target=None, miss=0, win=False, mood="idle",
     # 信息区
     draw_cards(d, quiz)
     draw_status(d, quiz, linked, hold_frac=hold_frac)
-    draw_panel(d, quiz_target if quiz else t, quiz, reveal=reveal, correct=win)
-    draw_face(d, "yay" if win else mood)
+    draw_panel(d, quiz_target if quiz else t, quiz, reveal=reveal, correct=win,
+               min_dim=min_dim)
+    draw_face(d, "up" if win else mood)
     finish(img, path)
 
 
@@ -477,15 +520,35 @@ def check_layout():
     assert HOLD_BAR_Y0 + HOLD_BAR_H <= Z_STAT[3], "长按进度条超出状态条卡片下沿"
     assert HOLD_BAR_X0 >= Z_STAT[0] and HOLD_BAR_X1 <= Z_STAT[2], "长按进度条超出状态条卡片左右沿"
 
+    # 🔴 当前小时牌(SPEC §5.9):四条边界都由别的对象定死,别拍脑袋改宽高。
+    chip_out = NUM_RING_R + HOUR_CHIP_W / 2          # 最外沿(数字在 3/9 点位时朝外的那半边)
+    chip_in = NUM_RING_R - HOUR_CHIP_W / 2
+    assert chip_out < TICK_MAJ_IN, \
+        f"小时牌外沿 {chip_out} 压到整点刻度内沿({TICK_MAJ_IN}) —— HOUR_CHIP_W 太宽"
+    w12 = font(NUM_H).getlength("12") / SS
+    assert w12 + 4 <= HOUR_CHIP_W, f"小时牌宽 {HOUR_CHIP_W} 装不下两位数「12」({w12:.0f}px+留白)"
+    gap = 2 * NUM_RING_R * math.sin(math.radians(15))   # 相邻两个数字的中心距
+    assert HOUR_CHIP_W < gap, f"小时牌宽 {HOUR_CHIP_W} ≥ 相邻数字间距 {gap:.0f},会糊到隔壁那个数"
+    assert HAND_HOUR_LEN + HAND_HOUR_W / 2 < chip_in, "小时牌盖住时针尖"
+    # ⚠️ 分针没有对应断言,而且**写不出来**:HAND_MIN_LEN(72)本来就长过数字圈(64),分针
+    #    扫过数字是真挂钟的常态。后果 = 当"该戴牌的数"恰好等于"长针停着的数"时(12:00 /
+    #    3:15 / 6:30 / 9:45 这四个时刻),两针会静止地压在牌子上,不是扫过。所幸这四个时刻
+    #    牌子指的就是正确答案(6:30 的答案本来就是 6),不会读错,只是那一下绑定动作看不清。
+    #    实机若判定影响验收,再考虑揭晓期间把牌子提到两针之上(代价:真挂钟没有这种叠序)。
+
     # 🔴 提示弧半径须卡在时针尖与数字圈内沿之间(SPEC §6.1),不遮时针、不越过装饰刻度数字。
     hour_tip = HAND_HOUR_LEN + HAND_HOUR_W / 2
     num_inner = NUM_RING_R - NUM_H / 2
     assert hour_tip < HINT_R < num_inner, \
         f"HINT_R={HINT_R} 须在时针尖 {hour_tip:.0f} 与数字圈内沿 {num_inner:.1f} 之间"
 
+    # ⚠️ 已知且接受的一处相交:提示弧外沿 {HINT_R+HINT_ARC_W2/2} 略越过小时牌内沿 {chip_in}
+    #    —— 只发生在数字 3/9 那两个位置(牌子横放,朝内的半宽最大),且提示弧是 QUIZ 按错后
+    #    的瞬态对象、画在牌子之上,擦边 3px 不遮任何信息。所以这里**不设断言**,只作记录。
     print(f"[layout ok] 最宽读数「{s}」{w:.0f}px,子区②内腔 {2 * PANEL_HW - 2 * PANEL_BORDER}px;"
           f" 反馈脸 φ{2 * FACE_R};提示弧半径 {HINT_R}(时针尖{hour_tip:.0f}~数字圈{num_inner:.1f}"
-          f" 之间);三子区均未压钟面;模式槽/进度条/连接点/电量互不重叠")
+          f" 之间);小时牌 {HOUR_CHIP_W}x{HOUR_CHIP_H}(外沿{chip_out:.1f}<刻度{TICK_MAJ_IN}、"
+          f"间距{gap:.0f});三子区均未压钟面;模式槽/进度条/连接点/电量互不重叠")
 
 
 def main():
@@ -495,8 +558,14 @@ def main():
     p = lambda n: os.path.join(out, n)
 
     # ── MODE_FREE ──────────────────────────────────────────────────────
+    # ★ §5.9 验收帧对:同一时刻 idle / 揭晓两张对照。看点 = **idle 盘面上没有任何数字线索**
+    #   (名牌藏着,孩子只能看短针猜),按键后名牌才在 7 上露面 —— 不是长针指着的 6。
     frame(7 * 60 + 30, p("free_idle_0730.png"))                         # ★ M1 验收帧延续:7:30 时针须在 7/8 正中
-    frame(7 * 60 + 30, p("free_reveal_0730.png"), reveal=True)           # 按键揭晓:数字亮起
+    frame(8 * 60 + 30, p("free_idle_0830.png"))
+    frame(7 * 60 + 30, p("free_reveal_0730_beat1.png"), reveal=True, min_dim=True)  # 揭晓第一拍:只亮小时
+    frame(7 * 60 + 30, p("free_reveal_0730.png"), reveal=True)           # 按键揭晓:数字亮起(第二拍)
+    # ★ 名牌被两针压住的最坏一帧(check_layout 里记的四个巧合时刻之一):牌子在 6、长针也停在 6
+    frame(6 * 60 + 30, p("free_reveal_0630.png"), reveal=True)
     frame(12 * 60 - 45, p("free_reveal_1115.png"), reveal=True)          # ★ 两位数小时,读数最宽的一类
     frame(6 * 60 + 30, p("free_idle_0630.png"))                          # ★ M2 验收帧:两针夹角仅 15°,同色最难一关
     frame(12 * 60, p("free_idle_1200.png"))                              # ★ 画序回归帧:两针 100% 重合的唯一时刻
@@ -506,11 +575,11 @@ def main():
 
     # ── MODE_QUIZ ──────────────────────────────────────────────────────
     frame(5 * 60, p("quiz_pending.png"), quiz_target=7 * 60 + 30)                    # 出题态,尚未按错过
-    frame(5 * 60, p("quiz_huh_miss1.png"), quiz_target=7 * 60 + 30, miss=1, mood="huh")   # 第1次按错:细暗弧
-    frame(6 * 60 + 45, p("quiz_huh_miss2.png"), quiz_target=7 * 60 + 30, miss=2, mood="huh")  # 第2次+按错:粗亮弧
+    frame(5 * 60, p("quiz_down_miss1.png"), quiz_target=7 * 60 + 30, miss=1, mood="down")   # 第1次按错:细暗弧
+    frame(6 * 60 + 45, p("quiz_down_miss2.png"), quiz_target=7 * 60 + 30, miss=2, mood="down")  # 第2次+按错:粗亮弧
     # Δt=105min 跨小时的题:验证时针角(不是分针角)给出正确的短边方向
-    frame(6 * 60, p("quiz_huh_cross_hour.png"), quiz_target=7 * 60 + 45, miss=1, mood="huh")
-    frame(7 * 60 + 30, p("quiz_win.png"), quiz_target=7 * 60 + 30, win=True)          # 答对:庆祝+绿字+yay脸
+    frame(6 * 60, p("quiz_down_cross_hour.png"), quiz_target=7 * 60 + 45, miss=1, mood="down")
+    frame(7 * 60 + 30, p("quiz_win.png"), quiz_target=7 * 60 + 30, win=True)          # 答对:庆祝+绿字+👍
 
     frame_no_unit(p("no_unit.png"))
 
